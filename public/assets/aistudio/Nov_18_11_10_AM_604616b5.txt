@@ -1,0 +1,1237 @@
+# MASTER IMPLEMENTATION PROMPT
+## Enterprise WiFi Observability, Analytics, Network Intelligence & Investigation Platform
+
+You are acting as a Principal Architect, Staff Backend Engineer, Data Platform Engineer, and Production Systems Engineer.
+
+The current backend and data model have already been validated against real production-like data.
+
+You are NOT building a simple dashboard.
+
+You are building an Enterprise WiFi Observability Platform comparable in philosophy to:
+
+- Cisco Catalyst Center Assurance
+- Cisco DNA Center
+- Splunk
+- Kibana
+- Elastic Security
+- Microsoft Sentinel
+- Azure Data Explorer
+- Datadog Network Monitoring
+
+The final platform must support:
+
+```text
+Executive Visibility
+
+Operational Analytics
+
+Root Cause Investigation
+
+Entity Relationships
+
+Network Intelligence
+
+Historical Forensics
+
+Drill Through Analysis
+```
+
+This platform is expected to evolve into an enterprise-grade WiFi analytics and investigation engine.
+
+No placeholders.
+
+No TODOs.
+
+No hardcoded values.
+
+No fabricated data.
+
+No assumptions beyond the requirements below.
+
+---
+
+# TECHNOLOGY STACK
+
+Implement using:
+
+```text
+Python 3.11+
+
+FastAPI
+
+Pydantic v2
+
+asyncpg
+
+PostgreSQL
+
+uvicorn
+```
+
+Architecture:
+
+```text
+backend/
+
+app/
+
+api/
+repositories/
+services/
+queries/
+models/
+schemas/
+db/
+cache/
+middleware/
+constants/
+utils/
+
+main.py
+config.py
+```
+
+Remove the temporary Node.js implementation generated during repository import.
+
+The backend targets a Python deployment environment with PostgreSQL access.
+
+---
+
+# API ROUTING
+
+No version prefix.
+
+Mount directly:
+
+```text
+/health
+
+/dashboard
+/dashboard/summary
+/dashboard/population
+/dashboard/connectivity
+/dashboard/ssid
+/dashboard/location
+/dashboard/activity
+/dashboard/data-quality
+/dashboard/ap
+/dashboard/inactive-users
+/dashboard/rare-users
+
+/investigate/search
+/investigate/options
+/investigate/events
+/investigate/timeline
+/investigate/summary
+
+/investigate/user/{employee_id}
+/investigate/mac/{user_mac}
+/investigate/location/{location}
+/investigate/ssid/{ssid}
+/investigate/ap/{ap_hostname}
+/investigate/ap-mac/{ap_mac}
+```
+
+---
+
+# DATABASE
+
+## wifi_event_history
+
+~7,404,600 rows
+
+Columns:
+
+```text
+id
+
+user_mac
+
+facility
+
+mnemonic
+
+status
+
+ssid
+
+appeared_timestamp
+
+elasticsearch_timestamp
+
+ingestion_delay_seconds
+
+raw_message
+
+metadata
+
+created_at
+```
+
+Status values:
+
+```text
+FAIL
+SUCCESS
+UNKNOWN
+```
+
+No other status values exist.
+
+---
+
+## wifi_user_summary
+
+~15,869 rows
+
+One record per MAC.
+
+Columns:
+
+```text
+user_mac
+
+employee_id
+
+location
+
+ap_mac
+
+ap_hostname
+
+observed_ssids
+
+first_seen_timestamp
+
+last_seen_timestamp
+
+total_appearance_count
+
+total_success_count
+
+total_failure_count
+
+total_exclusion_count
+
+last_event_status
+
+ux_available
+
+ux_timestamp
+
+ux_last_queried_timestamp
+
+asset_id
+
+device_ip
+
+observed_duration
+```
+
+---
+
+# BUSINESS DEFINITIONS
+
+## User
+
+User =
+
+```text
+employee_id
+```
+
+User metrics:
+
+```sql
+COUNT(DISTINCT employee_id)
+```
+
+---
+
+## Device
+
+Device =
+
+```text
+user_mac
+```
+
+Metrics:
+
+```sql
+COUNT(DISTINCT user_mac)
+```
+
+---
+
+## Valid User
+
+Definition:
+
+```sql
+employee_id IS NOT NULL
+AND total_success_count >= 1
+```
+
+This is final.
+
+Valid users can still have:
+
+```sql
+ux_available = false
+```
+
+---
+
+## UX Missing
+
+```sql
+ux_available = false
+```
+
+This is independent from validity.
+
+---
+
+## Unmapped User
+
+```sql
+employee_id IS NULL
+```
+
+---
+
+## Invalid Device
+
+```sql
+employee_id IS NULL
+AND total_success_count = 0
+```
+
+---
+
+# EVENT ENRICHMENT
+
+wifi_event_history does NOT contain:
+
+```text
+employee_id
+location
+ap_hostname
+ap_mac
+ux_available
+observed_ssids
+```
+
+Therefore investigation endpoints MUST enrich event data through:
+
+```sql
+wifi_event_history e
+JOIN wifi_user_summary s
+ON e.user_mac = s.user_mac
+```
+
+Whenever user enrichment is required.
+
+---
+
+# DASHBOARD
+
+Endpoint:
+
+```http
+GET /dashboard
+```
+
+Returns:
+
+```json
+{
+  "executive_summary": {},
+  "user_population": {},
+  "connectivity_health": {},
+  "ssid_intelligence": {},
+  "location_overview": {},
+  "user_activity": {},
+  "data_quality": {}
+}
+```
+
+---
+
+# EXECUTIVE SUMMARY
+
+KPIs:
+
+```text
+Total Devices
+
+Total Users
+
+Valid Users
+
+Invalid Devices
+
+UX Missing
+```
+
+---
+
+# CONNECTIVITY HEALTH
+
+KPIs:
+
+```text
+Success Rate
+
+Failure Rate
+
+Recovery Rate
+```
+
+Charts:
+
+```text
+Success vs Failure
+
+Recovery Analysis
+
+Outcome Distribution
+```
+
+---
+
+# RECOVERY DEFINITION
+
+Recovered means:
+
+```text
+FAIL
+
+followed later by
+
+SUCCESS
+
+for same MAC
+```
+
+Order matters.
+
+Current implementation:
+
+✅ Correct
+
+Performance:
+
+❌ Not acceptable
+
+Current query:
+
+~39 seconds
+
+Current architecture:
+
+❌ Computes on dashboard request
+
+Required architecture:
+
+Recovery state becomes part of aggregation.
+
+Add to wifi_user_summary:
+
+```sql
+recovered_after_failure BOOLEAN
+
+first_fail_timestamp TIMESTAMPTZ
+
+last_success_after_fail TIMESTAMPTZ
+```
+
+Computed incrementally.
+
+Dashboard should never scan 7.4M rows to compute recovery.
+
+---
+
+# USER POPULATION
+
+KPIs:
+
+```text
+Valid Users
+
+Multi Device Users
+
+MACs Last 7 Days
+
+MACs Last 30 Days
+
+MACs Last 90 Days
+```
+
+Distribution:
+
+```text
+Devices Per User
+```
+
+Buckets:
+
+```text
+1
+
+2
+
+3
+
+4-5
+
+6+
+```
+
+---
+
+# SSID INTELLIGENCE
+
+Return:
+
+```text
+Users Per SSID
+
+SSID Combinations
+
+Failure Distribution
+```
+
+User counts:
+
+```sql
+COUNT(DISTINCT employee_id)
+```
+
+---
+
+## Failure Distribution Problem
+
+Validated:
+
+```text
+FAIL rows = 6.18M
+
+FAIL rows with SSID = 0
+```
+
+Therefore:
+
+SSID Failure Distribution cannot be computed exactly from source data.
+
+Do NOT infer.
+
+Options:
+
+```text
+Return unavailable
+
+Return explicit message
+
+Suppress widget
+```
+
+Never fabricate.
+
+---
+
+# LOCATION OVERVIEW
+
+Users by Location:
+
+```sql
+COUNT(DISTINCT employee_id)
+```
+
+Devices by Location:
+
+```sql
+COUNT(DISTINCT user_mac)
+```
+
+---
+
+# USER ACTIVITY
+
+New Users:
+
+Based on:
+
+```sql
+first_seen_timestamp
+```
+
+from summary.
+
+Active Users:
+
+Daily distinct employee count.
+
+Current implementation:
+
+✅ Correct
+
+Current runtime:
+
+~13.6 seconds
+
+Move to:
+
+```sql
+daily_active_user_summary
+```
+
+aggregation layer.
+
+---
+
+# DATA QUALITY
+
+KPIs:
+
+```text
+Valid Users
+
+Unmapped Users
+
+UX Missing
+
+Invalid Devices
+```
+
+---
+
+## DEFECT TO FIX
+
+Current:
+
+```text
+Valid Classification
+```
+
+returns:
+
+```text
+11029
+```
+
+Expected:
+
+```text
+10508
+```
+
+Root cause:
+
+Device count instead of user count.
+
+Fix.
+
+---
+
+## Percentages
+
+Compute against:
+
+```text
+total devices
+```
+
+Percentages do NOT have to sum to 100%.
+
+Categories overlap.
+
+---
+
+# AP ANALYTICS
+
+Endpoint:
+
+```http
+GET /dashboard/ap
+```
+
+Use:
+
+```sql
+wifi_user_summary
+```
+
+Ignore:
+
+```text
+ap_hostname = 'NA'
+ap_hostname = ''
+NULL
+```
+
+---
+
+Top AP:
+
+```sql
+COUNT(DISTINCT employee_id)
+```
+
+Worst AP:
+
+```sql
+failure_rate
+```
+
+With threshold:
+
+```sql
+(total_success_count + total_failure_count) >= 1000
+```
+
+Return top 10.
+
+---
+
+# INACTIVE USERS
+
+Current defect:
+
+Uses:
+
+```sql
+NOW()
+```
+
+Dataset is historical.
+
+Result:
+
+Everyone inactive.
+
+Fix:
+
+Use:
+
+```sql
+MAX(last_seen_timestamp)
+```
+
+as reference date.
+
+---
+
+# RARE USERS
+
+Definition:
+
+```sql
+total_appearance_count < 5
+```
+
+Employee-level.
+
+Return:
+
+```text
+employee_id
+
+appearance_count
+
+device_count
+
+last_seen_timestamp
+```
+
+---
+
+# INVESTIGATION ENGINE
+
+Current:
+
+```text
+Entity Drilldowns
+```
+
+Future:
+
+```text
+Investigation Query Engine
+```
+
+---
+
+# SEARCH
+
+Current:
+
+```json
+{
+  "entity_type": "...",
+  "display_value": "..."
+}
+```
+
+Enhance:
+
+```json
+{
+  "entity_type": "...",
+
+  "display_value": "...",
+
+  "location": "...",
+
+  "users": ...,
+
+  "devices": ...,
+
+  "failure_rate": ...
+}
+```
+
+where applicable.
+
+Search results should contain enough context to decide whether to click.
+
+---
+
+# CROSS ENTITY SEARCH
+
+Search:
+
+```text
+yamuna
+```
+
+should return:
+
+```text
+Locations
+
+SSIDs
+
+APs
+
+Related entities
+```
+
+not only exact field matches.
+
+---
+
+# GENERIC INVESTIGATION REQUEST
+
+Create a generic investigation engine.
+
+Support:
+
+```python
+employee_ids
+
+user_macs
+
+ssids
+
+locations
+
+ap_hostnames
+
+ap_macs
+
+statuses
+
+mnemonics
+
+facilities
+
+asset_ids
+
+device_ips
+```
+
+---
+
+# NUMERIC FILTERS
+
+Support:
+
+```python
+min_success_count
+
+max_success_count
+
+min_failure_count
+
+max_failure_count
+
+min_appearance_count
+
+max_appearance_count
+
+min_exclusion_count
+
+max_exclusion_count
+
+min_duration_days
+
+max_duration_days
+```
+
+---
+
+# TEMPORAL FILTERS
+
+Support:
+
+```python
+first_seen_after
+
+first_seen_before
+
+last_seen_after
+
+last_seen_before
+
+start_timestamp
+
+end_timestamp
+```
+
+---
+
+# BOOLEAN FILTERS
+
+Support:
+
+```python
+valid_users_only
+
+ux_available
+
+unmapped_users_only
+
+invalid_devices_only
+
+recovered_only
+
+multi_device_users_only
+```
+
+---
+
+# GROUPING
+
+Support:
+
+```python
+group_by =
+    user
+    device
+    ssid
+    location
+    ap
+    ap_mac
+    event
+```
+
+Same filters.
+
+Different aggregation target.
+
+---
+
+# ENTITY GRAPH
+
+This is now a first-class requirement.
+
+Entities:
+
+```text
+Employee
+
+Device
+
+SSID
+
+Location
+
+AP Hostname
+
+AP MAC
+```
+
+Relationships:
+
+```text
+Employee ↔ Devices
+
+Device ↔ SSIDs
+
+Device ↔ APs
+
+AP Hostname ↔ AP MAC
+
+AP ↔ Locations
+
+SSID ↔ Locations
+
+Location ↔ Users
+```
+
+---
+
+# ENTITY ENDPOINTS
+
+## Employee
+
+Return:
+
+```text
+Profile
+
+Devices
+
+Locations
+
+SSIDs
+
+APs
+```
+
+---
+
+## Device
+
+Return:
+
+```text
+User
+
+SSIDs
+
+Locations
+
+APs
+```
+
+---
+
+## SSID
+
+Return:
+
+```text
+Locations
+
+APs
+
+Users
+
+Devices
+
+Metrics
+```
+
+---
+
+## Location
+
+Return:
+
+```text
+Users
+
+Devices
+
+SSIDs
+
+APs
+
+Metrics
+```
+
+---
+
+## AP HOSTNAME
+
+Extend endpoint.
+
+Return:
+
+```text
+AP MACs
+
+Locations
+
+SSIDs
+
+Users
+
+Devices
+
+Success
+
+Failure
+
+Failure Rate
+```
+
+---
+
+## AP MAC
+
+NEW ENDPOINT
+
+```http
+GET /investigate/ap-mac/{ap_mac}
+```
+
+Return:
+
+```text
+AP MAC
+
+AP Hostnames
+
+Locations
+
+SSIDs
+
+Users
+
+Devices
+
+Failure Rate
+
+Metrics
+```
+
+---
+
+# EVENTS
+
+Endpoint:
+
+```http
+POST /investigate/events
+```
+
+Current:
+
+✅ Correct
+
+Enhancement:
+
+Support:
+
+```python
+group_mode =
+    raw
+    authentication_attempt
+```
+
+to reduce duplicate MAB / SESSION_MGR noise.
+
+---
+
+# METRIC CONSISTENCY
+
+Fix all mismatches:
+
+Current:
+
+```text
+Dashboard Devices:
+15869
+
+Investigation Devices:
+15859
+```
+
+---
+
+Current:
+
+```text
+Dashboard Success:
+18.32
+
+Investigation Success:
+16.01
+```
+
+All unfiltered metrics must match exactly.
+
+---
+
+# DATA QUALITY ENHANCEMENTS
+
+Add dashboard KPIs:
+
+```text
+Location Coverage %
+
+AP Coverage %
+
+Employee Mapping %
+
+UX Enrichment %
+
+SSID Coverage
+```
+
+---
+
+# PERFORMANCE
+
+Mandatory.
+
+No dashboard request should scan:
+
+```text
+7.4M events
+```
+
+for recurring analytics.
+
+Move expensive calculations into:
+
+```text
+Aggregation Layer
+Materialized Summaries
+Incremental Updates
+```
+
+where appropriate.
+
+---
+
+# FINAL GOAL
+
+Build not only:
+
+```text
+Dashboard
+
+Investigation
+```
+
+but an extendable:
+
+```text
+WiFi Observability Platform
+
++
+Entity Graph
+
++
+Investigation Engine
+
++
+Network Intelligence Layer
+```
+
+capable of supporting future workflows without introducing dozens of specialized endpoints.

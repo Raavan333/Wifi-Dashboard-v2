@@ -29,8 +29,26 @@ SELECT
 FROM wifi_user_summary;
 """
 
-# Chronological recovery: FAIL event followed later by SUCCESS event for the same user_mac
-RECOVERY_ANALYSIS_QUERY = """
+# Pre-aggregated recovery query (<5ms, zero 7.4M event scan)
+RECOVERY_ANALYSIS_SUMMARY_QUERY = """
+SELECT
+    COUNT(DISTINCT user_mac)
+        FILTER (WHERE first_fail_timestamp IS NOT NULL OR total_failure_count > 0)
+        AS failed_devices,
+    COUNT(DISTINCT user_mac)
+        FILTER (WHERE recovered_after_failure = TRUE)
+        AS recovered_devices,
+    COUNT(DISTINCT user_mac)
+        FILTER (
+            WHERE (first_fail_timestamp IS NOT NULL OR total_failure_count > 0)
+              AND COALESCE(recovered_after_failure, FALSE) = FALSE
+        )
+        AS unrecovered_devices
+FROM wifi_user_summary;
+"""
+
+# Fallback recovery query only if 001_aggregation_layer.sql has not been applied
+RECOVERY_ANALYSIS_EVENT_FALLBACK_QUERY = """
 WITH mac_bounds AS (
     SELECT
         user_mac,
@@ -110,18 +128,24 @@ GROUP BY bucket, sort_order
 ORDER BY sort_order;
 """
 
+# Uses MAX(last_seen_timestamp) as reference timestamp so historical datasets work accurately
 RECENT_ACTIVITY_QUERY = """
+WITH ref AS (
+    SELECT MAX(last_seen_timestamp) AS max_ts
+    FROM wifi_user_summary
+)
 SELECT
-    COUNT(DISTINCT user_mac)
-        FILTER (WHERE last_seen_timestamp >= NOW() - INTERVAL '7 days')
+    COUNT(DISTINCT w.user_mac)
+        FILTER (WHERE w.last_seen_timestamp >= r.max_ts - INTERVAL '7 days')
         AS macs_last_7_days,
-    COUNT(DISTINCT user_mac)
-        FILTER (WHERE last_seen_timestamp >= NOW() - INTERVAL '30 days')
+    COUNT(DISTINCT w.user_mac)
+        FILTER (WHERE w.last_seen_timestamp >= r.max_ts - INTERVAL '30 days')
         AS macs_last_30_days,
-    COUNT(DISTINCT user_mac)
-        FILTER (WHERE last_seen_timestamp >= NOW() - INTERVAL '90 days')
+    COUNT(DISTINCT w.user_mac)
+        FILTER (WHERE w.last_seen_timestamp >= r.max_ts - INTERVAL '90 days')
         AS macs_last_90_days
-FROM wifi_user_summary;
+FROM wifi_user_summary w
+CROSS JOIN ref r;
 """
 
 # ============================================================
@@ -218,6 +242,17 @@ ORDER BY user_count DESC
 LIMIT $1;
 """
 
+SSID_FAIL_EXISTS_QUERY = """
+SELECT EXISTS (
+    SELECT 1
+    FROM wifi_event_history
+    WHERE status = 'FAIL'
+      AND ssid IS NOT NULL
+      AND ssid <> ''
+    LIMIT 1
+);
+"""
+
 SSID_FAILURE_DISTRIBUTION_QUERY = """
 SELECT
     ssid,
@@ -250,6 +285,7 @@ SELECT
     COUNT(DISTINCT employee_id) AS user_count
 FROM wifi_user_summary
 WHERE location IS NOT NULL
+  AND location <> ''
   AND location <> 'NA'
   AND employee_id IS NOT NULL
 GROUP BY location
@@ -263,6 +299,7 @@ SELECT
     COUNT(DISTINCT user_mac) AS device_count
 FROM wifi_user_summary
 WHERE location IS NOT NULL
+  AND location <> ''
   AND location <> 'NA'
 GROUP BY location
 ORDER BY device_count DESC
@@ -320,7 +357,17 @@ GROUP BY DATE(first_seen)
 ORDER BY observation_date;
 """
 
-ACTIVE_USERS_TREND_QUERY = """
+# Pre-aggregated daily_active_user_summary (<2ms)
+ACTIVE_USERS_TREND_AGG_QUERY = """
+SELECT
+    activity_date AS observation_date,
+    active_users AS users
+FROM daily_active_user_summary
+ORDER BY activity_date;
+"""
+
+# Fallback only if daily_active_user_summary table does not exist yet
+ACTIVE_USERS_TREND_FALLBACK_QUERY = """
 SELECT
     DATE(e.appeared_timestamp) AS observation_date,
     COUNT(DISTINCT s.employee_id) AS users
@@ -334,7 +381,7 @@ ORDER BY observation_date;
 """
 
 # ============================================================
-# DATA QUALITY
+# DATA QUALITY (VALID CLASSIFICATION = DISTINCT EMPLOYEE COUNT)
 # ============================================================
 
 DATA_QUALITY_QUERY = """
@@ -345,11 +392,6 @@ SELECT
             WHERE employee_id IS NOT NULL
               AND total_success_count >= 1
         ) AS valid_users,
-    COUNT(DISTINCT user_mac)
-        FILTER (
-            WHERE employee_id IS NOT NULL
-              AND total_success_count >= 1
-        ) AS valid_devices,
     COUNT(DISTINCT user_mac)
         FILTER (WHERE employee_id IS NULL) AS unmapped_users,
     COUNT(DISTINCT user_mac)
@@ -366,13 +408,20 @@ SELECT
     COUNT(DISTINCT user_mac)
         FILTER (
             WHERE location IS NOT NULL
+              AND location <> ''
               AND location <> 'NA'
         ) AS location_mapped_devices,
     COUNT(DISTINCT user_mac)
         FILTER (
             WHERE ap_hostname IS NOT NULL
+              AND ap_hostname <> ''
               AND ap_hostname <> 'NA'
-        ) AS ap_mapped_devices
+        ) AS ap_mapped_devices,
+    COUNT(DISTINCT user_mac)
+        FILTER (
+            WHERE observed_ssids IS NOT NULL
+              AND cardinality(observed_ssids) > 0
+        ) AS ssid_covered_devices
 FROM wifi_user_summary;
 """
 
@@ -398,6 +447,7 @@ SELECT
     ) AS failure_rate
 FROM wifi_user_summary
 WHERE ap_hostname IS NOT NULL
+  AND ap_hostname <> ''
   AND ap_hostname <> 'NA'
 GROUP BY ap_hostname
 ORDER BY users DESC, devices DESC
@@ -422,6 +472,7 @@ SELECT
     ) AS failure_rate
 FROM wifi_user_summary
 WHERE ap_hostname IS NOT NULL
+  AND ap_hostname <> ''
   AND ap_hostname <> 'NA'
 GROUP BY ap_hostname
 HAVING COALESCE(SUM(total_success_count + total_failure_count), 0) >= $1
@@ -430,19 +481,24 @@ LIMIT $2;
 """
 
 # ============================================================
-# INACTIVE USERS
+# INACTIVE USERS (USES MAX(last_seen_timestamp) AS REFERENCE)
 # ============================================================
 
 INACTIVE_USERS_QUERY = """
+WITH ref AS (
+    SELECT MAX(last_seen_timestamp) AS max_ts
+    FROM wifi_user_summary
+)
 SELECT
-    employee_id,
-    COUNT(DISTINCT user_mac) AS device_count,
-    MAX(last_seen_timestamp) AS last_seen_timestamp,
+    w.employee_id,
+    COUNT(DISTINCT w.user_mac) AS device_count,
+    MAX(w.last_seen_timestamp) AS last_seen_timestamp,
     COUNT(*) OVER() AS total_records
-FROM wifi_user_summary
-WHERE employee_id IS NOT NULL
-GROUP BY employee_id
-HAVING MAX(last_seen_timestamp) < NOW() - ($1::INT * INTERVAL '1 day')
+FROM wifi_user_summary w
+CROSS JOIN ref r
+WHERE w.employee_id IS NOT NULL
+GROUP BY w.employee_id, r.max_ts
+HAVING MAX(w.last_seen_timestamp) < r.max_ts - ($1::INT * INTERVAL '1 day')
 ORDER BY last_seen_timestamp ASC NULLS FIRST
 LIMIT $2 OFFSET $3;
 """

@@ -5,7 +5,7 @@ from typing import Any, Optional
 class QueryBuilder:
     """
     Parameterized PostgreSQL WHERE / ORDER BY / LIMIT-OFFSET builder
-    preventing SQL injection and supporting 7.4M+ event filtering.
+    preventing SQL injection and supporting generic multi-entity filtering.
     """
 
     def __init__(self) -> None:
@@ -34,6 +34,13 @@ class QueryBuilder:
         idx = self._add_param(values)
         self.conditions.append(f"{column} = ANY(${idx})")
 
+    def array_overlaps(self, column: str, values: Optional[list[str]]) -> None:
+        """Matches summary TEXT[] column (e.g. s.observed_ssids) against filter list."""
+        if not values:
+            return
+        idx = self._add_param(values)
+        self.conditions.append(f"{column} && ${idx}::TEXT[]")
+
     def boolean(self, column: str, value: Optional[bool]) -> None:
         if value is None:
             return
@@ -53,6 +60,36 @@ class QueryBuilder:
             idx = self._add_param(end)
             self.conditions.append(f"{column} <= ${idx}")
 
+    def numeric_range(
+        self,
+        column: str,
+        min_val: Optional[int | float],
+        max_val: Optional[int | float],
+    ) -> None:
+        if min_val is not None:
+            idx = self._add_param(min_val)
+            self.conditions.append(f"{column} >= ${idx}")
+        if max_val is not None:
+            idx = self._add_param(max_val)
+            self.conditions.append(f"{column} <= ${idx}")
+
+    def duration_days_range(
+        self,
+        column: str,
+        min_days: Optional[float],
+        max_days: Optional[float],
+    ) -> None:
+        if min_days is not None:
+            idx = self._add_param(min_days)
+            self.conditions.append(
+                f"EXTRACT(EPOCH FROM {column}) / 86400.0 >= ${idx}"
+            )
+        if max_days is not None:
+            idx = self._add_param(max_days)
+            self.conditions.append(
+                f"EXTRACT(EPOCH FROM {column}) / 86400.0 <= ${idx}"
+            )
+
     def raw(self, clause: str) -> None:
         if clause:
             self.conditions.append(clause)
@@ -68,6 +105,41 @@ class QueryBuilder:
     def invalid_devices_only(self, alias: str = "s") -> None:
         self.conditions.append(
             f"{alias}.employee_id IS NULL AND {alias}.total_success_count = 0"
+        )
+
+    def recovered_only(
+        self,
+        alias: str = "s",
+        has_recovery_columns: bool = True,
+    ) -> None:
+        if has_recovery_columns:
+            self.conditions.append(f"{alias}.recovered_after_failure = TRUE")
+        else:
+            self.conditions.append(
+                f"""EXISTS (
+                    SELECT 1
+                    FROM wifi_event_history ef
+                    WHERE ef.user_mac = {alias}.user_mac
+                      AND ef.status = 'FAIL'
+                      AND EXISTS (
+                          SELECT 1
+                          FROM wifi_event_history es
+                          WHERE es.user_mac = ef.user_mac
+                            AND es.status = 'SUCCESS'
+                            AND es.appeared_timestamp > ef.appeared_timestamp
+                      )
+                )"""
+            )
+
+    def multi_device_users_only(self, alias: str = "s") -> None:
+        self.conditions.append(
+            f"""{alias}.employee_id IN (
+                SELECT employee_id
+                FROM wifi_user_summary
+                WHERE employee_id IS NOT NULL
+                GROUP BY employee_id
+                HAVING COUNT(DISTINCT user_mac) > 1
+            )"""
         )
 
     def build_where(self) -> str:

@@ -12,7 +12,8 @@ from app.constants.dashboard import (
 )
 from app.db.database import Database, db
 from app.queries.dashboard_queries import (
-    ACTIVE_USERS_TREND_QUERY,
+    ACTIVE_USERS_TREND_AGG_QUERY,
+    ACTIVE_USERS_TREND_FALLBACK_QUERY,
     CONNECTIVITY_HEALTH_QUERY,
     DATA_QUALITY_QUERY,
     DEVICE_DISTRIBUTION_QUERY,
@@ -25,9 +26,11 @@ from app.queries.dashboard_queries import (
     OUTCOME_DISTRIBUTION_QUERY,
     RARE_USERS_QUERY,
     RECENT_ACTIVITY_QUERY,
-    RECOVERY_ANALYSIS_QUERY,
+    RECOVERY_ANALYSIS_EVENT_FALLBACK_QUERY,
+    RECOVERY_ANALYSIS_SUMMARY_QUERY,
     SSID_COMBINATIONS_QUERY,
     SSID_DISTRIBUTION_QUERY,
+    SSID_FAIL_EXISTS_QUERY,
     SSID_FAILURE_DISTRIBUTION_QUERY,
     SUCCESS_FAILURE_QUERY,
     TOP_APS_QUERY,
@@ -47,7 +50,12 @@ class DashboardRepository:
         return await self._db.fetchrow(SUCCESS_FAILURE_QUERY)
 
     async def get_recovery_analysis(self) -> Optional[Record]:
-        return await self._db.fetchrow(RECOVERY_ANALYSIS_QUERY)
+        query = (
+            RECOVERY_ANALYSIS_SUMMARY_QUERY
+            if self._db.has_recovery_columns
+            else RECOVERY_ANALYSIS_EVENT_FALLBACK_QUERY
+        )
+        return await self._db.fetchrow(query)
 
     async def get_user_population(self) -> Optional[Record]:
         return await self._db.fetchrow(USER_POPULATION_QUERY)
@@ -74,6 +82,10 @@ class DashboardRepository:
     ) -> list[Record]:
         return await self._db.fetch(SSID_COMBINATIONS_QUERY, limit)
 
+    async def has_ssid_failure_data(self) -> bool:
+        exists = await self._db.fetchval(SSID_FAIL_EXISTS_QUERY)
+        return bool(exists)
+
     async def get_ssid_failure_distribution(
         self, limit: int = TOP_FAILURE_SSIDS
     ) -> list[Record]:
@@ -96,7 +108,12 @@ class DashboardRepository:
         return await self._db.fetch(NEW_USERS_TREND_QUERY)
 
     async def get_active_users_trend(self) -> list[Record]:
-        return await self._db.fetch(ACTIVE_USERS_TREND_QUERY)
+        query = (
+            ACTIVE_USERS_TREND_AGG_QUERY
+            if self._db.has_daily_active_summary
+            else ACTIVE_USERS_TREND_FALLBACK_QUERY
+        )
+        return await self._db.fetch(query)
 
     async def get_data_quality(self) -> Optional[Record]:
         return await self._db.fetchrow(DATA_QUALITY_QUERY)

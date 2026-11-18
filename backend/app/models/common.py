@@ -62,6 +62,9 @@ class WifiUserSummaryModel(BaseModel):
     ap_hostname: Optional[str] = None
     observed_ssids: List[str] = []
     observed_duration: Optional[timedelta] = None
+    recovered_after_failure: bool = False
+    first_fail_timestamp: Optional[datetime] = None
+    last_success_after_fail: Optional[datetime] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 

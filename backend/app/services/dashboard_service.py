@@ -234,11 +234,21 @@ class DashboardService:
 
             success_rate = float(health["success_rate"] or 0.0)
             failure_rate = float(health["failure_rate"] or 0.0)
+            failed_devices = int(recovery["failed_devices"] or 0) if recovery else 0
+            recovered_devices = (
+                int(recovery["recovered_devices"] or 0) if recovery else 0
+            )
+            recovery_rate = (
+                round(recovered_devices * 100.0 / failed_devices, 2)
+                if failed_devices
+                else 0.0
+            )
 
             return ConnectivityHealthResponse(
                 metrics=[
                     MetricCard(title="Success Rate", value=success_rate),
                     MetricCard(title="Failure Rate", value=failure_rate),
+                    MetricCard(title="Recovery Rate", value=recovery_rate),
                 ],
                 success_failure_chart=PieChartResponse(
                     title="Success vs Failure",
@@ -283,11 +293,39 @@ class DashboardService:
 
     async def get_ssid_intelligence(self) -> SSIDIntelligenceResponse:
         async def _load() -> SSIDIntelligenceResponse:
-            distribution, combinations, failures = await asyncio.gather(
+            distribution, combinations, has_ssid_failures = await asyncio.gather(
                 self._repo.get_ssid_distribution(),
                 self._repo.get_ssid_combinations(),
-                self._repo.get_ssid_failure_distribution(),
+                self._repo.has_ssid_failure_data(),
             )
+
+            if has_ssid_failures:
+                failures = await self._repo.get_ssid_failure_distribution()
+                failure_distribution = SSIDFailureDistributionResponse(
+                    title="SSID Failures",
+                    available=True,
+                    status="available",
+                    message=None,
+                    items=[
+                        SSIDFailureItem(
+                            ssid=row["ssid"],
+                            failure_count=int(row["failure_count"] or 0),
+                            failure_rate=float(row["failure_rate"] or 0.0),
+                        )
+                        for row in failures
+                    ],
+                )
+            else:
+                failure_distribution = SSIDFailureDistributionResponse(
+                    title="SSID Failures",
+                    available=False,
+                    status="unavailable",
+                    message=(
+                        "SSID failure distribution cannot be computed because FAIL events "
+                        "in wifi_event_history do not contain SSID values."
+                    ),
+                    items=[],
+                )
 
             return SSIDIntelligenceResponse(
                 metrics=[],
@@ -311,17 +349,7 @@ class DashboardService:
                         for row in combinations
                     ],
                 ),
-                failure_distribution=SSIDFailureDistributionResponse(
-                    title="SSID Failures",
-                    items=[
-                        SSIDFailureItem(
-                            ssid=row["ssid"],
-                            failure_count=int(row["failure_count"] or 0),
-                            failure_rate=float(row["failure_rate"] or 0.0),
-                        )
-                        for row in failures
-                    ],
-                ),
+                failure_distribution=failure_distribution,
             )
 
         return await get_or_set_cached(DASHBOARD_SSID, _load)
@@ -409,10 +437,14 @@ class DashboardService:
 
             total_devices = int(data["total_devices"] or 0)
             valid_users = int(data["valid_users"] or 0)
-            valid_devices = int(data["valid_devices"] or 0)
             unmapped_users = int(data["unmapped_users"] or 0)
             ux_missing = int(data["ux_missing"] or 0)
             invalid_devices = int(data["invalid_devices"] or 0)
+            employee_mapped = int(data["employee_mapped_devices"] or 0)
+            ux_enriched = int(data["ux_enriched_devices"] or 0)
+            location_mapped = int(data["location_mapped_devices"] or 0)
+            ap_mapped = int(data["ap_mapped_devices"] or 0)
+            ssid_covered = int(data["ssid_covered_devices"] or 0)
 
             def pct(count: int) -> float:
                 return (
@@ -427,14 +459,31 @@ class DashboardService:
                     MetricCard(title="Unmapped Users", value=unmapped_users),
                     MetricCard(title="UX Missing", value=ux_missing),
                     MetricCard(title="Invalid Devices", value=invalid_devices),
+                    MetricCard(
+                        title="Location Coverage %",
+                        value=pct(location_mapped),
+                    ),
+                    MetricCard(title="AP Coverage %", value=pct(ap_mapped)),
+                    MetricCard(
+                        title="Employee Mapping %",
+                        value=pct(employee_mapped),
+                    ),
+                    MetricCard(
+                        title="UX Enrichment %",
+                        value=pct(ux_enriched),
+                    ),
+                    MetricCard(
+                        title="SSID Coverage",
+                        value=pct(ssid_covered),
+                    ),
                 ],
                 classification_chart=PieChartResponse(
                     title="User Classification",
                     items=[
                         PieChartItem(
                             label="Valid",
-                            value=valid_devices,
-                            percentage=pct(valid_devices),
+                            value=valid_users,
+                            percentage=pct(valid_users),
                         ),
                         PieChartItem(
                             label="Unmapped",
@@ -458,19 +507,23 @@ class DashboardService:
                     items=[
                         BarChartItem(
                             label="Employee Mapped",
-                            value=int(data["employee_mapped_devices"] or 0),
+                            value=employee_mapped,
                         ),
                         BarChartItem(
                             label="UX Enriched",
-                            value=int(data["ux_enriched_devices"] or 0),
+                            value=ux_enriched,
                         ),
                         BarChartItem(
                             label="Location Mapped",
-                            value=int(data["location_mapped_devices"] or 0),
+                            value=location_mapped,
                         ),
                         BarChartItem(
                             label="AP Mapped",
-                            value=int(data["ap_mapped_devices"] or 0),
+                            value=ap_mapped,
+                        ),
+                        BarChartItem(
+                            label="SSID Covered",
+                            value=ssid_covered,
                         ),
                     ],
                 ),

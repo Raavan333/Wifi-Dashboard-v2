@@ -13,6 +13,8 @@ class Database:
 
     def __init__(self) -> None:
         self.pool: Optional[asyncpg.Pool] = None
+        self.has_recovery_columns: bool = False
+        self.has_daily_active_summary: bool = False
 
     async def connect(self) -> None:
         if self.pool is not None:
@@ -39,6 +41,43 @@ class Database:
             settings.DB_MIN_CONNECTIONS,
             settings.DB_MAX_CONNECTIONS,
         )
+        await self.detect_aggregation_layer()
+
+    async def detect_aggregation_layer(self) -> None:
+        """Detect pre-aggregated columns/tables to avoid 7.4M-row scans."""
+        try:
+            recovery_col = await self.fetchval(
+                """
+                SELECT EXISTS (
+                    SELECT 1
+                    FROM information_schema.columns
+                    WHERE table_schema = 'public'
+                      AND table_name = 'wifi_user_summary'
+                      AND column_name = 'recovered_after_failure'
+                );
+                """
+            )
+            daily_tbl = await self.fetchval(
+                """
+                SELECT EXISTS (
+                    SELECT 1
+                    FROM information_schema.tables
+                    WHERE table_schema = 'public'
+                      AND table_name = 'daily_active_user_summary'
+                );
+                """
+            )
+            self.has_recovery_columns = bool(recovery_col)
+            self.has_daily_active_summary = bool(daily_tbl)
+            logger.info(
+                "Aggregation layer capabilities: has_recovery_columns=%s has_daily_active_summary=%s",
+                self.has_recovery_columns,
+                self.has_daily_active_summary,
+            )
+        except Exception as exc:
+            logger.warning("Failed to detect aggregation layer: %s", exc)
+            self.has_recovery_columns = False
+            self.has_daily_active_summary = False
 
     async def disconnect(self) -> None:
         if self.pool is not None:

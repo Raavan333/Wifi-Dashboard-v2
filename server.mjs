@@ -26,6 +26,7 @@ const ENDPOINTS = [
   "GET /investigate/location/{location}",
   "GET /investigate/ssid/{ssid}",
   "GET /investigate/ap/{ap_hostname}",
+  "GET /investigate/ap-mac/{ap_mac}",
 ];
 
 const server = http.createServer((req, res) => {
@@ -37,7 +38,7 @@ const server = http.createServer((req, res) => {
     res.end(
       JSON.stringify({
         service: "WiFi Observability & Investigation Platform",
-        version: "2.0.0",
+        version: "3.0.0",
         status: "running_preview_gateway",
         backend_location: "backend/",
         note: "Production FastAPI + asyncpg + PostgreSQL backend is in backend/. Run `uvicorn app.main:app --host 0.0.0.0 --port 8000` inside backend/ in a Python 3.11+ environment with PostgreSQL access.",
@@ -52,7 +53,7 @@ const server = http.createServer((req, res) => {
     res.end(
       JSON.stringify({
         service: "WiFi Observability & Investigation Platform",
-        version: "2.0.0",
+        version: "3.0.0",
         status: "healthy",
         database: "external-postgres-in-backend",
       }),

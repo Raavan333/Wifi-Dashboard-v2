@@ -13,20 +13,62 @@ class GlobalSearchRequest(APIModel):
 
 
 class InvestigationRequest(APIModel):
+    # Entity filters
     employee_ids: list[int] = Field(default_factory=list)
     user_macs: list[str] = Field(default_factory=list)
     ssids: list[str] = Field(default_factory=list)
+    locations: list[str] = Field(default_factory=list)
+    ap_hostnames: list[str] = Field(default_factory=list)
+    ap_macs: list[str] = Field(default_factory=list)
     statuses: list[str] = Field(default_factory=list)
     mnemonics: list[str] = Field(default_factory=list)
     facilities: list[str] = Field(default_factory=list)
-    locations: list[str] = Field(default_factory=list)
-    ap_hostnames: list[str] = Field(default_factory=list)
+    asset_ids: list[str] = Field(default_factory=list)
+    device_ips: list[str] = Field(default_factory=list)
+
+    # Numeric filters
+    min_success_count: Optional[int] = Field(default=None, ge=0)
+    max_success_count: Optional[int] = Field(default=None, ge=0)
+    min_failure_count: Optional[int] = Field(default=None, ge=0)
+    max_failure_count: Optional[int] = Field(default=None, ge=0)
+    min_appearance_count: Optional[int] = Field(default=None, ge=0)
+    max_appearance_count: Optional[int] = Field(default=None, ge=0)
+    min_exclusion_count: Optional[int] = Field(default=None, ge=0)
+    max_exclusion_count: Optional[int] = Field(default=None, ge=0)
+    min_duration_days: Optional[float] = Field(default=None, ge=0)
+    max_duration_days: Optional[float] = Field(default=None, ge=0)
+
+    # Temporal filters
+    first_seen_after: Optional[datetime] = None
+    first_seen_before: Optional[datetime] = None
+    last_seen_after: Optional[datetime] = None
+    last_seen_before: Optional[datetime] = None
+    start_timestamp: Optional[datetime] = None
+    end_timestamp: Optional[datetime] = None
+
+    # Boolean filters
     ux_available: Optional[bool] = None
     valid_users_only: bool = False
     unmapped_users_only: bool = False
     invalid_devices_only: bool = False
-    start_timestamp: Optional[datetime] = None
-    end_timestamp: Optional[datetime] = None
+    recovered_only: bool = False
+    multi_device_users_only: bool = False
+
+    # Grouping & deduplication
+    group_by: Optional[
+        Literal[
+            "user",
+            "device",
+            "ssid",
+            "location",
+            "ap",
+            "ap_mac",
+            "event",
+        ]
+    ] = None
+    group_mode: Literal["raw", "authentication_attempt"] = "raw"
+
+    # Pagination & sorting
     page: int = Field(default=1, ge=1)
     page_size: int = Field(default=50, ge=1, le=500)
     sort_by: Optional[str] = None
@@ -66,13 +108,43 @@ class RawEvent(APIModel):
     appeared_timestamp: datetime
     elasticsearch_timestamp: datetime
     ap_hostname: Optional[str]
+    ap_mac: Optional[str] = None
     location: Optional[str]
     message: Optional[str] = None
+    attempt_count: Optional[int] = None
 
 
 class RawEventsResponse(APIModel):
     records: list[RawEvent]
     pagination: PaginationMeta
+
+
+class GroupedInvestigationItem(APIModel):
+    group_key: str
+    users: int
+    devices: int
+    total_events: int
+    success_count: int
+    failure_count: int
+    unknown_count: int
+    failure_rate: float
+    first_seen: Optional[datetime] = None
+    last_seen: Optional[datetime] = None
+
+
+class GroupedInvestigationResponse(APIModel):
+    group_by: str
+    records: list[GroupedInvestigationItem]
+    pagination: PaginationMeta
+
+
+class EmployeeProfile(APIModel):
+    employee_id: int
+    total_devices: int
+    total_success_count: int
+    total_failure_count: int
+    first_seen_timestamp: Optional[datetime]
+    last_seen_timestamp: Optional[datetime]
 
 
 class DeviceDetail(APIModel):
@@ -95,26 +167,32 @@ class DeviceDetail(APIModel):
     ap_mac: Optional[str] = None
     ap_hostname: Optional[str]
     observed_ssids: list[str] = Field(default_factory=list)
-
-
-class EmployeeProfile(APIModel):
-    employee_id: int
-    total_devices: int
-    total_success_count: int
-    total_failure_count: int
-    first_seen_timestamp: Optional[datetime]
-    last_seen_timestamp: Optional[datetime]
+    recovered_after_failure: bool = False
+    first_fail_timestamp: Optional[datetime] = None
+    last_success_after_fail: Optional[datetime] = None
+    user: Optional[EmployeeProfile] = None
+    ssids: list[str] = Field(default_factory=list)
+    locations: list[str] = Field(default_factory=list)
+    aps: list[str] = Field(default_factory=list)
 
 
 class EmployeeOverviewResponse(APIModel):
     profile: Optional[EmployeeProfile]
     devices: List[Dict[str, Any]]
+    locations: List[str] = Field(default_factory=list)
+    ssids: List[str] = Field(default_factory=list)
+    aps: List[str] = Field(default_factory=list)
 
 
 class SearchResult(APIModel):
     entity_type: str
     display_value: str
     matched_field: str
+    location: Optional[str] = None
+    users: Optional[int] = None
+    devices: Optional[int] = None
+    failure_rate: Optional[float] = None
+    related_to: Optional[str] = None
 
 
 class GlobalSearchResponse(APIModel):
@@ -131,16 +209,29 @@ class FilterOptionsResponse(APIModel):
     ap_hostnames: list[str] = Field(default_factory=list)
 
 
+class EntityMetrics(APIModel):
+    users: int = 0
+    devices: int = 0
+    success_count: int = 0
+    failure_count: int = 0
+    success_rate: float = 0.0
+    failure_rate: float = 0.0
+
+
 class LocationEntityResponse(APIModel):
     location: str
     users: int
     devices: int
     success_count: int
     failure_count: int
-    top_ssids: List[Dict[str, Any]]
-    top_aps: List[Dict[str, Any]]
-    first_seen: Optional[datetime]
-    last_seen: Optional[datetime]
+    failure_rate: float = 0.0
+    ssids: List[Dict[str, Any]] = Field(default_factory=list)
+    aps: List[Dict[str, Any]] = Field(default_factory=list)
+    top_ssids: List[Dict[str, Any]] = Field(default_factory=list)
+    top_aps: List[Dict[str, Any]] = Field(default_factory=list)
+    first_seen: Optional[datetime] = None
+    last_seen: Optional[datetime] = None
+    metrics: EntityMetrics = Field(default_factory=EntityMetrics)
 
 
 class SSIDEntityResponse(APIModel):
@@ -149,18 +240,34 @@ class SSIDEntityResponse(APIModel):
     devices: int
     success_count: int
     failure_count: int
-    locations: List[Dict[str, Any]]
-    aps: List[Dict[str, Any]]
-    first_seen: Optional[datetime]
-    last_seen: Optional[datetime]
+    failure_rate: float = 0.0
+    locations: List[Dict[str, Any]] = Field(default_factory=list)
+    aps: List[Dict[str, Any]] = Field(default_factory=list)
+    first_seen: Optional[datetime] = None
+    last_seen: Optional[datetime] = None
+    metrics: EntityMetrics = Field(default_factory=EntityMetrics)
 
 
 class APEntityResponse(APIModel):
     ap_hostname: str
+    ap_macs: List[str] = Field(default_factory=list)
     users: int
     devices: int
     success_count: int
     failure_count: int
     failure_rate: float
-    locations: List[str]
-    ssids: List[str]
+    locations: List[str] = Field(default_factory=list)
+    ssids: List[str] = Field(default_factory=list)
+
+
+class APMacEntityResponse(APIModel):
+    ap_mac: str
+    ap_hostnames: List[str] = Field(default_factory=list)
+    locations: List[str] = Field(default_factory=list)
+    ssids: List[str] = Field(default_factory=list)
+    users: int
+    devices: int
+    success_count: int
+    failure_count: int
+    failure_rate: float
+    metrics: EntityMetrics = Field(default_factory=EntityMetrics)

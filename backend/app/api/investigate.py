@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, Union
 
 from fastapi import APIRouter, Query
 
@@ -6,10 +6,12 @@ from app.api.deps import InvestigateServiceDep
 from app.constants.dashboard import MAX_PAGE_SIZE
 from app.schemas.investigate import (
     APEntityResponse,
+    APMacEntityResponse,
     DeviceDetail,
     EmployeeOverviewResponse,
     FilterOptionsResponse,
     GlobalSearchResponse,
+    GroupedInvestigationResponse,
     InvestigationRequest,
     InvestigationSummary,
     LocationEntityResponse,
@@ -47,11 +49,14 @@ async def get_filter_options(
     return await service.get_filter_options()
 
 
-@router.post("/events", response_model=RawEventsResponse)
+@router.post(
+    "/events",
+    response_model=Union[RawEventsResponse, GroupedInvestigationResponse],
+)
 async def search_events(
     filters: InvestigationRequest,
     service: InvestigateServiceDep,
-) -> RawEventsResponse:
+) -> Union[RawEventsResponse, GroupedInvestigationResponse]:
     return await service.search_events(filters)
 
 
@@ -109,3 +114,11 @@ async def ap_details(
     service: InvestigateServiceDep,
 ) -> APEntityResponse:
     return await service.get_ap_details(ap_hostname)
+
+
+@router.get("/ap-mac/{ap_mac}", response_model=APMacEntityResponse)
+async def ap_mac_details(
+    ap_mac: str,
+    service: InvestigateServiceDep,
+) -> APMacEntityResponse:
+    return await service.get_ap_mac_details(ap_mac)

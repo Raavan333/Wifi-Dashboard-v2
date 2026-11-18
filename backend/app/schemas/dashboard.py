@@ -39,7 +39,10 @@ class SSIDFailureItem(APIModel):
 
 class SSIDFailureDistributionResponse(APIModel):
     title: str
-    items: List[SSIDFailureItem]
+    available: bool = False
+    status: str = "unavailable"
+    message: Optional[str] = None
+    items: List[SSIDFailureItem] = Field(default_factory=list)
 
 
 class SSIDIntelligenceResponse(APIModel):
