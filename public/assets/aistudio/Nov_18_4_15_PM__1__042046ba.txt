@@ -1,0 +1,1000 @@
+# MASTER PROMPT
+## Build a World‑Class WiFi Observability & Investigation Platform Frontend
+
+You are the lead Principal Frontend Architect, Product Designer, UX Engineer, Visualization Engineer, and React Platform Engineer.
+
+The backend is now feature-complete and validated.
+
+Do not redesign backend APIs.
+
+Do not invent backend endpoints.
+
+Use only the validated API contract.
+
+The objective is to create a production-grade frontend that feels closer to:
+
+- Splunk Enterprise
+- Microsoft Sentinel
+- Elastic Discover
+- Datadog
+- Azure Data Explorer
+- Cisco Catalyst Center Assurance
+- Grafana
+- Kibana
+
+than a traditional dashboard.
+
+This is NOT a dashboard project.
+
+This is:
+
+```text
+Network Intelligence Platform
+
++
+Investigation Platform
+
++
+Observability Platform
+
++
+Entity Graph Explorer
+```
+
+---
+
+# TECHNOLOGY STACK
+
+Build using:
+
+```text
+React 19
+
+TypeScript
+
+Vite
+
+Material UI
+
+TanStack Query
+
+TanStack Table
+
+Zustand
+
+Recharts
+
+React Router
+
+Framer Motion
+```
+
+No Redux.
+
+No heavy framework wrappers.
+
+No unnecessary abstractions.
+
+Frontend must remain performant on large result sets.
+
+---
+
+# DESIGN PHILOSOPHY
+
+The platform should feel:
+
+```text
+Premium
+
+Technical
+
+Fast
+
+Dense
+
+Powerful
+
+Minimal
+```
+
+The user should feel:
+
+```text
+I can investigate anything.
+
+I can correlate everything.
+
+I can move instantly between entities.
+
+I never get lost.
+```
+
+---
+
+# VISUAL INSPIRATION
+
+Blend:
+
+```text
+Datadog
+
+Sentinel
+
+Splunk
+
+Notion
+
+Linear
+```
+
+Avoid:
+
+```text
+Bootstrap admin panel
+
+Corporate KPI dashboard
+
+Excel-like UI
+```
+
+---
+
+# APP STRUCTURE
+
+Only two major workflows.
+
+```text
+Dashboard
+
+Investigation
+```
+
+No extra pages.
+
+No navigation clutter.
+
+---
+
+# APPLICATION SHELL
+
+Persistent:
+
+```text
+Collapsible Sidebar
+
+Global Search
+
+Entity Breadcrumbs
+
+Theme Switch
+
+User Settings
+
+Notification Area
+```
+
+---
+
+Sidebar:
+
+```text
+Dashboard
+
+Investigation
+
+Entity Explorer
+
+Saved Views
+
+Settings
+```
+
+---
+
+# DASHBOARD PAGE
+
+Purpose:
+
+```text
+Executive Situation Awareness
+```
+
+NOT troubleshooting.
+
+Every visual must support:
+
+```text
+click
+→ drillthrough
+→ investigation
+```
+
+---
+
+## Executive Summary
+
+Large KPI cards.
+
+Show:
+
+```text
+Total Devices
+
+Total Users
+
+Valid Users
+
+Invalid Devices
+
+UX Missing
+```
+
+Animations:
+
+```text
+count-up
+
+light pulse on refresh
+```
+
+---
+
+## Connectivity Health
+
+Visuals:
+
+```text
+Success vs Failure Donut
+
+Recovery Analysis Donut
+
+Outcome Distribution
+```
+
+Interactions:
+
+```text
+click success
+
+click fail
+
+click recovered
+```
+
+↓
+
+Investigation filters auto-applied.
+
+---
+
+## User Population
+
+Visuals:
+
+```text
+Device Distribution
+
+Multi-Device Users
+
+Device Activity
+```
+
+---
+
+## SSID Intelligence
+
+Visuals:
+
+```text
+Top SSIDs
+
+SSID Combinations
+
+SSID Trends
+```
+
+When selecting SSID:
+
+```text
+Open Entity Drawer
+
+or
+
+Go to Investigation
+```
+
+---
+
+## Location Analytics
+
+Visuals:
+
+```text
+Users by Location
+
+Devices by Location
+
+Location Coverage
+```
+
+Important:
+
+Highlight:
+
+```text
+Unknown
+```
+
+because location coverage is weak.
+
+---
+
+## Activity
+
+Visuals:
+
+```text
+New User Trend
+
+Active User Trend
+
+Duration Distribution
+```
+
+---
+
+## Data Quality
+
+Visuals:
+
+```text
+User Classification
+
+Coverage Metrics
+
+Data Completeness
+```
+
+Show:
+
+```text
+Location Coverage %
+
+AP Coverage %
+
+Employee Mapping %
+
+UX Coverage %
+
+SSID Coverage %
+```
+
+---
+
+## AP Analytics
+
+Visuals:
+
+```text
+Top APs
+
+Worst APs
+```
+
+Badge:
+
+```text
+AP Coverage: 7.49%
+```
+
+to remind users data is incomplete.
+
+---
+
+## Rare Users
+
+Visual:
+
+```text
+Table
+
+Trend summary
+```
+
+---
+
+## Inactive Users
+
+Visual:
+
+```text
+7 Days
+
+30 Days
+
+90 Days
+```
+
+tabs.
+
+---
+
+# INVESTIGATION PAGE
+
+The Investigation Page is the real product.
+
+Everything revolves around this experience.
+
+---
+
+Layout:
+
+```text
+Global Search
+
+Filter Builder
+
+Active Filters
+
+Summary Ribbon
+
+Timeline
+
+Results
+
+Entity Drawer
+```
+
+---
+
+# GLOBAL SEARCH
+
+Always visible.
+
+Supports:
+
+```text
+Employee
+
+Device
+
+SSID
+
+Location
+
+AP
+
+AP MAC
+
+Raw Message
+```
+
+Search experience should resemble:
+
+```text
+Spotlight
+
+Raycast
+
+Command Palette
+```
+
+not a search box.
+
+---
+
+Search results should display:
+
+```text
+Entity Type
+
+Value
+
+Context
+
+Metrics
+```
+
+Example:
+
+```text
+SSID
+
+!dw$_Tb_o@&
+
+Users: 9867
+Devices: 10638
+Failures: 398465
+```
+
+---
+
+# FILTER BUILDER
+
+Most important UI element.
+
+Should support:
+
+```text
+Add Filter
+```
+
+workflow.
+
+Example:
+
+```text
+SSID contains
+
+Location equals
+
+Failure Count >
+
+Duration >
+
+AP Hostname =
+
+AP MAC =
+```
+
+Users should never manually craft JSON.
+
+---
+
+Filter logic:
+
+```text
+AND
+
+OR
+
+Nested Groups
+```
+
+supported.
+
+---
+
+# INVESTIGATION SUMMARY
+
+Auto-updates.
+
+Large cards.
+
+Show:
+
+```text
+Users
+
+Devices
+
+Success
+
+Failure
+
+Recovery
+
+Coverage
+```
+
+---
+
+# TIMELINE
+
+Most important investigation visual.
+
+Modes:
+
+```text
+Hour
+
+Day
+
+Week
+
+Month
+```
+
+Show:
+
+```text
+Success
+
+Failure
+
+Unknown
+
+Recovery
+```
+
+Overlay.
+
+Zoomable.
+
+Brush support.
+
+---
+
+# RESULTS AREA
+
+Dual Mode:
+
+```text
+Raw Mode
+
+Aggregated Mode
+```
+
+---
+
+Raw Mode:
+
+Use:
+
+```text
+TanStack Table
+```
+
+Columns:
+
+```text
+Timestamp
+
+Employee
+
+MAC
+
+Status
+
+SSID
+
+Location
+
+AP
+
+Facility
+
+Mnemonic
+
+Message
+```
+
+---
+
+Aggregated Mode:
+
+Support:
+
+```text
+Group by User
+
+Group by Device
+
+Group by SSID
+
+Group by Location
+
+Group by AP
+
+Group by AP MAC
+```
+
+exactly matching backend.
+
+---
+
+# ENTITY DRAWER
+
+Universal slide-out drawer.
+
+Never navigate away.
+
+---
+
+Supported:
+
+```text
+User
+
+Device
+
+SSID
+
+Location
+
+AP
+
+AP MAC
+```
+
+---
+
+Example:
+
+SSID Drawer
+
+Show:
+
+```text
+Metrics
+
+Locations
+
+APs
+
+Relationships
+
+Timeline
+```
+
+---
+
+Location Drawer
+
+Show:
+
+```text
+Users
+
+Devices
+
+APs
+
+SSIDs
+
+Coverage
+```
+
+---
+
+AP Drawer
+
+Show:
+
+```text
+AP MACs
+
+Failures
+
+Locations
+
+SSIDs
+
+Users
+```
+
+---
+
+AP MAC Drawer
+
+Show:
+
+```text
+Hostnames
+
+Locations
+
+SSIDs
+
+Users
+
+Devices
+
+Metrics
+```
+
+---
+
+# ENTITY GRAPH
+
+Build a visual relationship explorer.
+
+Interactive graph.
+
+Nodes:
+
+```text
+User
+
+Device
+
+SSID
+
+Location
+
+AP
+
+AP MAC
+```
+
+Relationships:
+
+```text
+User ↔ Device
+
+Device ↔ SSID
+
+SSID ↔ Location
+
+SSID ↔ AP
+
+AP ↔ AP MAC
+```
+
+Clicking nodes:
+
+```text
+Open drawer
+
+Add filter
+
+Investigate
+```
+
+---
+
+# SAVED VIEWS
+
+Users can save:
+
+```text
+Filters
+
+Grouping
+
+Columns
+
+Charts
+```
+
+and reopen later.
+
+---
+
+# DARK MODE
+
+Default:
+
+```text
+Dark
+```
+
+Professional.
+
+Colors:
+
+```text
+Success = Green
+
+Fail = Red
+
+Warning = Amber
+
+Unknown = Purple
+```
+
+Avoid neon.
+
+---
+
+# PERFORMANCE
+
+Target:
+
+```text
+Sub-second navigation
+
+60fps interactions
+
+Virtualized tables
+
+Lazy loading
+```
+
+Large result sets must remain smooth.
+
+---
+
+# ANIMATIONS
+
+Subtle only.
+
+Allowed:
+
+```text
+Fade
+
+Slide
+
+Scale
+
+Number transitions
+```
+
+Avoid:
+
+```text
+Bounce
+
+Spin
+
+Gimmicks
+```
+
+---
+
+# ACCESSIBILITY
+
+Support:
+
+```text
+Keyboard navigation
+
+High contrast
+
+Screen readers
+
+Focus state
+```
+
+throughout.
+
+---
+
+# FRONTEND ARCHITECTURE
+
+Use:
+
+```text
+/api
+
+/features
+
+/components
+
+/layouts
+
+/pages
+
+/types
+
+/store
+
+/theme
+```
+
+Feature-first structure.
+
+---
+
+# FINAL GOAL
+
+When a network engineer opens the application, the experience should feel like:
+
+```text
+Search Anything
+
+Understand Everything
+
+Correlate Instantly
+
+Investigate Deeply
+```
+
+The frontend should showcase the power of the backend's:
+
+```text
+Entity Graph
+
+Investigation Engine
+
+Advanced Filters
+
+Grouping
+
+Search
+
+Observability
+```
+
+and feel like a modern enterprise intelligence platform rather than a dashboard.

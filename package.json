@@ -5,8 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "node server.mjs",
-    "build": "node --check server.mjs",
+    "build": "node --check server.mjs && npm --prefix frontend run build",
     "start": "node server.mjs",
-    "lint": "node --check server.mjs"
+    "lint": "node --check server.mjs && npm --prefix frontend run lint"
   }
 }
