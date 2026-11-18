@@ -56,6 +56,7 @@ class LocationOverviewResponse(APIModel):
     metrics: List[MetricCard] = Field(default_factory=list)
     user_distribution: BarChartResponse
     device_distribution: BarChartResponse
+    location_coverage: float = 0.0
 
 
 class UserActivityResponse(APIModel):
@@ -65,10 +66,18 @@ class UserActivityResponse(APIModel):
     active_user_trend: LineChartResponse
 
 
+class APCoverageStats(APIModel):
+    ap_coverage: float = 0.0
+    mapped_devices: int = 0
+    unmapped_devices: int = 0
+
+
 class DataQualityResponse(APIModel):
     metrics: List[MetricCard]
     classification_chart: PieChartResponse
     completeness_chart: BarChartResponse
+    ap_coverage: Optional[APCoverageStats] = None
+    location_coverage: float = 0.0
 
 
 class DashboardResponse(APIModel):
@@ -93,6 +102,7 @@ class APMetricItem(APIModel):
 class APAnalyticsResponse(APIModel):
     top_aps: List[APMetricItem]
     worst_aps: List[APMetricItem]
+    ap_coverage: Optional[APCoverageStats] = None
 
 
 class InactiveUserItem(APIModel):

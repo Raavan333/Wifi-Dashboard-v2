@@ -19,6 +19,7 @@ from app.schemas.investigate import (
     SSIDEntityResponse,
     TimelinePoint,
     TimelineResponse,
+    UniversalEntityResponse,
 )
 
 __all__ = [
@@ -42,4 +43,5 @@ __all__ = [
     "SSIDEntityResponse",
     "TimelinePoint",
     "TimelineResponse",
+    "UniversalEntityResponse",
 ]

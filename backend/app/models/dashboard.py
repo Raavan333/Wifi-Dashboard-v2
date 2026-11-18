@@ -1,5 +1,6 @@
 from app.schemas.dashboard import (
     APAnalyticsResponse,
+    APCoverageStats,
     APMetricItem,
     ConnectivityHealthResponse,
     DashboardResponse,
@@ -19,6 +20,7 @@ from app.schemas.dashboard import (
 
 __all__ = [
     "APAnalyticsResponse",
+    "APCoverageStats",
     "APMetricItem",
     "ConnectivityHealthResponse",
     "DashboardResponse",

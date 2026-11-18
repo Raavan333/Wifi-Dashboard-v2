@@ -29,6 +29,7 @@ from app.schemas.common import (
 )
 from app.schemas.dashboard import (
     APAnalyticsResponse,
+    APCoverageStats,
     APMetricItem,
     ConnectivityHealthResponse,
     DashboardResponse,
@@ -356,13 +357,30 @@ class DashboardService:
 
     async def get_location_overview(self) -> LocationOverviewResponse:
         async def _load() -> LocationOverviewResponse:
-            user_locations, device_locations = await asyncio.gather(
+            user_locations, device_locations, coverage = await asyncio.gather(
                 self._repo.get_location_user_distribution(),
                 self._repo.get_location_device_distribution(),
+                self._repo.get_coverage_metrics(),
+            )
+            total_devices = (
+                int(coverage["total_devices"] or 0) if coverage else 0
+            )
+            location_mapped = (
+                int(coverage["location_mapped_devices"] or 0) if coverage else 0
+            )
+            location_coverage = (
+                round(location_mapped * 100.0 / total_devices, 2)
+                if total_devices
+                else 0.0
             )
 
             return LocationOverviewResponse(
-                metrics=[],
+                metrics=[
+                    MetricCard(
+                        title="Location Coverage %",
+                        value=location_coverage,
+                    )
+                ],
                 user_distribution=BarChartResponse(
                     title="Users By Location",
                     items=[
@@ -383,6 +401,7 @@ class DashboardService:
                         for row in device_locations
                     ],
                 ),
+                location_coverage=location_coverage,
             )
 
         return await get_or_set_cached(DASHBOARD_LOCATION, _load)
@@ -453,6 +472,9 @@ class DashboardService:
                     else 0.0
                 )
 
+            location_cov = pct(location_mapped)
+            ap_cov = pct(ap_mapped)
+
             return DataQualityResponse(
                 metrics=[
                     MetricCard(title="Valid Users", value=valid_users),
@@ -461,9 +483,9 @@ class DashboardService:
                     MetricCard(title="Invalid Devices", value=invalid_devices),
                     MetricCard(
                         title="Location Coverage %",
-                        value=pct(location_mapped),
+                        value=location_cov,
                     ),
-                    MetricCard(title="AP Coverage %", value=pct(ap_mapped)),
+                    MetricCard(title="AP Coverage %", value=ap_cov),
                     MetricCard(
                         title="Employee Mapping %",
                         value=pct(employee_mapped),
@@ -527,15 +549,34 @@ class DashboardService:
                         ),
                     ],
                 ),
+                ap_coverage=APCoverageStats(
+                    ap_coverage=ap_cov,
+                    mapped_devices=ap_mapped,
+                    unmapped_devices=max(0, total_devices - ap_mapped),
+                ),
+                location_coverage=location_cov,
             )
 
         return await get_or_set_cached(DASHBOARD_DATA_QUALITY, _load)
 
     async def get_ap_analytics(self) -> APAnalyticsResponse:
         async def _load() -> APAnalyticsResponse:
-            top_rows, worst_rows = await asyncio.gather(
+            top_rows, worst_rows, coverage = await asyncio.gather(
                 self._repo.get_top_aps(),
                 self._repo.get_worst_aps(),
+                self._repo.get_coverage_metrics(),
+            )
+
+            total_devices = (
+                int(coverage["total_devices"] or 0) if coverage else 0
+            )
+            ap_mapped = (
+                int(coverage["ap_mapped_devices"] or 0) if coverage else 0
+            )
+            ap_cov = (
+                round(ap_mapped * 100.0 / total_devices, 2)
+                if total_devices
+                else 0.0
             )
 
             def to_item(row) -> APMetricItem:
@@ -551,6 +592,11 @@ class DashboardService:
             return APAnalyticsResponse(
                 top_aps=[to_item(r) for r in top_rows],
                 worst_aps=[to_item(r) for r in worst_rows],
+                ap_coverage=APCoverageStats(
+                    ap_coverage=ap_cov,
+                    mapped_devices=ap_mapped,
+                    unmapped_devices=max(0, total_devices - ap_mapped),
+                ),
             )
 
         return await get_or_set_cached(DASHBOARD_AP, _load)

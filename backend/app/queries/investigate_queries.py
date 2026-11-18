@@ -13,10 +13,23 @@ SELECT
     e.ssid,
     e.appeared_timestamp,
     e.elasticsearch_timestamp,
-    s.location,
-    s.ap_hostname,
-    s.ap_mac,
+    CASE
+        WHEN s.location IS NULL OR BTRIM(s.location) = '' OR UPPER(BTRIM(s.location)) = 'NA'
+        THEN NULL
+        ELSE BTRIM(s.location)
+    END AS location,
+    CASE
+        WHEN s.ap_hostname IS NULL OR BTRIM(s.ap_hostname) = '' OR UPPER(BTRIM(s.ap_hostname)) = 'NA'
+        THEN NULL
+        ELSE BTRIM(s.ap_hostname)
+    END AS ap_hostname,
+    CASE
+        WHEN s.ap_mac IS NULL OR BTRIM(s.ap_mac) = '' OR UPPER(BTRIM(s.ap_mac)) = 'NA'
+        THEN NULL
+        ELSE BTRIM(s.ap_mac)
+    END AS ap_mac,
     e.raw_message AS message,
+    e.metadata,
     NULL::INTEGER AS attempt_count
 FROM wifi_event_history e
 LEFT JOIN wifi_user_summary s
@@ -43,10 +56,29 @@ WITH attempt_grouped AS (
         e.ssid,
         MAX(e.appeared_timestamp) AS appeared_timestamp,
         MAX(e.elasticsearch_timestamp) AS elasticsearch_timestamp,
-        MAX(s.location) AS location,
-        MAX(s.ap_hostname) AS ap_hostname,
-        MAX(s.ap_mac) AS ap_mac,
+        MAX(
+            CASE
+                WHEN s.location IS NULL OR BTRIM(s.location) = '' OR UPPER(BTRIM(s.location)) = 'NA'
+                THEN NULL
+                ELSE BTRIM(s.location)
+            END
+        ) AS location,
+        MAX(
+            CASE
+                WHEN s.ap_hostname IS NULL OR BTRIM(s.ap_hostname) = '' OR UPPER(BTRIM(s.ap_hostname)) = 'NA'
+                THEN NULL
+                ELSE BTRIM(s.ap_hostname)
+            END
+        ) AS ap_hostname,
+        MAX(
+            CASE
+                WHEN s.ap_mac IS NULL OR BTRIM(s.ap_mac) = '' OR UPPER(BTRIM(s.ap_mac)) = 'NA'
+                THEN NULL
+                ELSE BTRIM(s.ap_mac)
+            END
+        ) AS ap_mac,
         MAX(e.raw_message) AS message,
+        (ARRAY_AGG(e.metadata) FILTER (WHERE e.metadata IS NOT NULL))[1] AS metadata,
         COUNT(*)::INTEGER AS attempt_count
     FROM wifi_event_history e
     LEFT JOIN wifi_user_summary s
@@ -69,12 +101,12 @@ LIMIT ${limit_idx} OFFSET ${offset_idx};
 """
 
 # ============================================================
-# TIMELINE (HONORS ALL INVESTIGATION FILTERS)
+# TIMELINE (HONORS ALL INVESTIGATION FILTERS & TIME BUCKETING)
 # ============================================================
 
-EVENT_TIMELINE_QUERY = """
+EVENT_TIMELINE_QUERY_TEMPLATE = """
 SELECT
-    DATE(e.appeared_timestamp) AS activity_date,
+    {bucket_expr} AS activity_date,
     COUNT(*) FILTER (WHERE e.status = 'SUCCESS') AS success_count,
     COUNT(*) FILTER (WHERE e.status = 'FAIL') AS failure_count,
     COUNT(*) FILTER (WHERE e.status = 'UNKNOWN') AS unknown_count,
@@ -82,6 +114,9 @@ SELECT
 FROM wifi_event_history e
 LEFT JOIN wifi_user_summary s
     ON e.user_mac = s.user_mac
+{where_clause}
+GROUP BY activity_date
+ORDER BY activity_date ASC;
 """
 
 # ============================================================
@@ -391,11 +426,23 @@ SELECT
     ux_available,
     ux_timestamp,
     ux_last_queried_timestamp,
-    asset_id,
-    device_ip,
-    location,
-    ap_mac,
-    ap_hostname,
+    NULLIF(NULLIF(BTRIM(asset_id), ''), 'NA') AS asset_id,
+    NULLIF(NULLIF(BTRIM(device_ip), ''), 'NA') AS device_ip,
+    CASE
+        WHEN location IS NULL OR BTRIM(location) = '' OR UPPER(BTRIM(location)) = 'NA'
+        THEN NULL
+        ELSE BTRIM(location)
+    END AS location,
+    CASE
+        WHEN ap_mac IS NULL OR BTRIM(ap_mac) = '' OR UPPER(BTRIM(ap_mac)) = 'NA'
+        THEN NULL
+        ELSE BTRIM(ap_mac)
+    END AS ap_mac,
+    CASE
+        WHEN ap_hostname IS NULL OR BTRIM(ap_hostname) = '' OR UPPER(BTRIM(ap_hostname)) = 'NA'
+        THEN NULL
+        ELSE BTRIM(ap_hostname)
+    END AS ap_hostname,
     observed_ssids
 FROM wifi_user_summary
 """
@@ -416,13 +463,13 @@ GROUP BY employee_id;
 EMPLOYEE_ENTITY_RELATIONS_QUERY = """
 SELECT
     COALESCE(
-        ARRAY_AGG(DISTINCT location)
-            FILTER (WHERE location IS NOT NULL AND location <> '' AND location <> 'NA'),
+        ARRAY_AGG(DISTINCT BTRIM(location))
+            FILTER (WHERE location IS NOT NULL AND BTRIM(location) <> '' AND UPPER(BTRIM(location)) <> 'NA'),
         ARRAY[]::TEXT[]
     ) AS locations,
     COALESCE(
-        ARRAY_AGG(DISTINCT ap_hostname)
-            FILTER (WHERE ap_hostname IS NOT NULL AND ap_hostname <> '' AND ap_hostname <> 'NA'),
+        ARRAY_AGG(DISTINCT BTRIM(ap_hostname))
+            FILTER (WHERE ap_hostname IS NOT NULL AND BTRIM(ap_hostname) <> '' AND UPPER(BTRIM(ap_hostname)) <> 'NA'),
         ARRAY[]::TEXT[]
     ) AS aps
 FROM wifi_user_summary
@@ -430,20 +477,20 @@ WHERE employee_id = $1;
 """
 
 EMPLOYEE_ENTITY_SSIDS_QUERY = """
-SELECT DISTINCT ssid
+SELECT DISTINCT BTRIM(ssid) AS ssid
 FROM (
     SELECT UNNEST(observed_ssids) AS ssid
     FROM wifi_user_summary
     WHERE employee_id = $1
       AND observed_ssids IS NOT NULL
 ) t
-WHERE ssid IS NOT NULL AND ssid <> ''
+WHERE ssid IS NOT NULL AND BTRIM(ssid) <> ''
 ORDER BY ssid;
 """
 
 LOCATION_ENTITY_SUMMARY_QUERY = """
 SELECT
-    $1::TEXT AS location,
+    COALESCE(MAX(BTRIM(location)), BTRIM($1)) AS location,
     COUNT(DISTINCT employee_id)
         FILTER (WHERE employee_id IS NOT NULL) AS users,
     COUNT(DISTINCT user_mac) AS devices,
@@ -460,12 +507,15 @@ SELECT
     MIN(first_seen_timestamp) AS first_seen,
     MAX(last_seen_timestamp) AS last_seen
 FROM wifi_user_summary
-WHERE location = $1;
+WHERE location IS NOT NULL
+  AND BTRIM(location) <> ''
+  AND UPPER(BTRIM(location)) <> 'NA'
+  AND LOWER(BTRIM(location)) = LOWER(BTRIM($1));
 """
 
 LOCATION_TOP_SSIDS_QUERY = """
 SELECT
-    ssid,
+    BTRIM(ssid) AS ssid,
     COUNT(DISTINCT employee_id)
         FILTER (WHERE employee_id IS NOT NULL) AS users,
     COUNT(DISTINCT user_mac) AS devices
@@ -475,36 +525,68 @@ FROM (
         user_mac,
         UNNEST(observed_ssids) AS ssid
     FROM wifi_user_summary
-    WHERE location = $1
+    WHERE location IS NOT NULL
+      AND BTRIM(location) <> ''
+      AND UPPER(BTRIM(location)) <> 'NA'
+      AND LOWER(BTRIM(location)) = LOWER(BTRIM($1))
       AND observed_ssids IS NOT NULL
 ) t
-WHERE ssid IS NOT NULL AND ssid <> ''
-GROUP BY ssid
+WHERE ssid IS NOT NULL AND BTRIM(ssid) <> ''
+GROUP BY BTRIM(ssid)
 ORDER BY users DESC, devices DESC
 LIMIT 20;
 """
 
 LOCATION_TOP_APS_QUERY = """
 SELECT
-    ap_hostname,
+    BTRIM(ap_hostname) AS ap_hostname,
     COUNT(DISTINCT employee_id)
         FILTER (WHERE employee_id IS NOT NULL) AS users,
     COUNT(DISTINCT user_mac) AS devices,
     COALESCE(SUM(total_success_count), 0) AS success_count,
     COALESCE(SUM(total_failure_count), 0) AS failure_count
 FROM wifi_user_summary
-WHERE location = $1
+WHERE location IS NOT NULL
+  AND BTRIM(location) <> ''
+  AND UPPER(BTRIM(location)) <> 'NA'
+  AND LOWER(BTRIM(location)) = LOWER(BTRIM($1))
   AND ap_hostname IS NOT NULL
-  AND ap_hostname <> ''
-  AND ap_hostname <> 'NA'
-GROUP BY ap_hostname
+  AND BTRIM(ap_hostname) <> ''
+  AND UPPER(BTRIM(ap_hostname)) <> 'NA'
+GROUP BY BTRIM(ap_hostname)
 ORDER BY users DESC, devices DESC
 LIMIT 20;
 """
 
 SSID_ENTITY_SUMMARY_QUERY = """
+WITH matched AS (
+    SELECT
+        employee_id,
+        user_mac,
+        total_success_count,
+        total_failure_count,
+        first_seen_timestamp,
+        last_seen_timestamp,
+        (
+            SELECT BTRIM(u.s)
+            FROM UNNEST(observed_ssids) AS u(s)
+            WHERE u.s IS NOT NULL
+              AND BTRIM(u.s) <> ''
+              AND LOWER(BTRIM(u.s)) = LOWER(BTRIM($1))
+            LIMIT 1
+        ) AS matched_ssid
+    FROM wifi_user_summary
+    WHERE observed_ssids IS NOT NULL
+      AND EXISTS (
+          SELECT 1
+          FROM UNNEST(observed_ssids) AS u(s)
+          WHERE u.s IS NOT NULL
+            AND BTRIM(u.s) <> ''
+            AND LOWER(BTRIM(u.s)) = LOWER(BTRIM($1))
+      )
+)
 SELECT
-    $1::TEXT AS ssid,
+    COALESCE(MAX(matched_ssid), BTRIM($1)) AS ssid,
     COUNT(DISTINCT employee_id)
         FILTER (WHERE employee_id IS NOT NULL) AS users,
     COUNT(DISTINCT user_mac) AS devices,
@@ -520,45 +602,58 @@ SELECT
     ) AS failure_rate,
     MIN(first_seen_timestamp) AS first_seen,
     MAX(last_seen_timestamp) AS last_seen
-FROM wifi_user_summary
-WHERE $1 = ANY(observed_ssids);
+FROM matched;
 """
 
 SSID_LOCATIONS_QUERY = """
 SELECT
-    location,
+    BTRIM(location) AS location,
     COUNT(DISTINCT employee_id)
         FILTER (WHERE employee_id IS NOT NULL) AS users,
     COUNT(DISTINCT user_mac) AS devices
 FROM wifi_user_summary
-WHERE $1 = ANY(observed_ssids)
+WHERE observed_ssids IS NOT NULL
+  AND EXISTS (
+      SELECT 1
+      FROM UNNEST(observed_ssids) AS u(s)
+      WHERE u.s IS NOT NULL
+        AND BTRIM(u.s) <> ''
+        AND LOWER(BTRIM(u.s)) = LOWER(BTRIM($1))
+  )
   AND location IS NOT NULL
-  AND location <> ''
-  AND location <> 'NA'
-GROUP BY location
+  AND BTRIM(location) <> ''
+  AND UPPER(BTRIM(location)) <> 'NA'
+GROUP BY BTRIM(location)
 ORDER BY users DESC, devices DESC
 LIMIT 25;
 """
 
 SSID_APS_QUERY = """
 SELECT
-    ap_hostname,
+    BTRIM(ap_hostname) AS ap_hostname,
     COUNT(DISTINCT employee_id)
         FILTER (WHERE employee_id IS NOT NULL) AS users,
     COUNT(DISTINCT user_mac) AS devices
 FROM wifi_user_summary
-WHERE $1 = ANY(observed_ssids)
+WHERE observed_ssids IS NOT NULL
+  AND EXISTS (
+      SELECT 1
+      FROM UNNEST(observed_ssids) AS u(s)
+      WHERE u.s IS NOT NULL
+        AND BTRIM(u.s) <> ''
+        AND LOWER(BTRIM(u.s)) = LOWER(BTRIM($1))
+  )
   AND ap_hostname IS NOT NULL
-  AND ap_hostname <> ''
-  AND ap_hostname <> 'NA'
-GROUP BY ap_hostname
+  AND BTRIM(ap_hostname) <> ''
+  AND UPPER(BTRIM(ap_hostname)) <> 'NA'
+GROUP BY BTRIM(ap_hostname)
 ORDER BY users DESC, devices DESC
 LIMIT 25;
 """
 
 AP_ENTITY_SUMMARY_QUERY = """
 SELECT
-    $1::TEXT AS ap_hostname,
+    COALESCE(MAX(BTRIM(ap_hostname)), BTRIM($1)) AS ap_hostname,
     COUNT(DISTINCT employee_id)
         FILTER (WHERE employee_id IS NOT NULL) AS users,
     COUNT(DISTINCT user_mac) AS devices,
@@ -573,34 +668,42 @@ SELECT
         0
     ) AS failure_rate,
     COALESCE(
-        ARRAY_AGG(DISTINCT ap_mac)
-            FILTER (WHERE ap_mac IS NOT NULL AND ap_mac <> '' AND ap_mac <> 'NA'),
+        ARRAY_AGG(DISTINCT BTRIM(ap_mac))
+            FILTER (WHERE ap_mac IS NOT NULL AND BTRIM(ap_mac) <> '' AND UPPER(BTRIM(ap_mac)) <> 'NA'),
         ARRAY[]::TEXT[]
     ) AS ap_macs,
     COALESCE(
-        ARRAY_AGG(DISTINCT location)
-            FILTER (WHERE location IS NOT NULL AND location <> '' AND location <> 'NA'),
+        ARRAY_AGG(DISTINCT BTRIM(location))
+            FILTER (WHERE location IS NOT NULL AND BTRIM(location) <> '' AND UPPER(BTRIM(location)) <> 'NA'),
         ARRAY[]::TEXT[]
-    ) AS locations
+    ) AS locations,
+    MIN(first_seen_timestamp) AS first_seen,
+    MAX(last_seen_timestamp) AS last_seen
 FROM wifi_user_summary
-WHERE ap_hostname = $1;
+WHERE ap_hostname IS NOT NULL
+  AND BTRIM(ap_hostname) <> ''
+  AND UPPER(BTRIM(ap_hostname)) <> 'NA'
+  AND LOWER(BTRIM(ap_hostname)) = LOWER(BTRIM($1));
 """
 
 AP_ENTITY_SSIDS_QUERY = """
-SELECT DISTINCT ssid
+SELECT DISTINCT BTRIM(ssid) AS ssid
 FROM (
     SELECT UNNEST(observed_ssids) AS ssid
     FROM wifi_user_summary
-    WHERE ap_hostname = $1
+    WHERE ap_hostname IS NOT NULL
+      AND BTRIM(ap_hostname) <> ''
+      AND UPPER(BTRIM(ap_hostname)) <> 'NA'
+      AND LOWER(BTRIM(ap_hostname)) = LOWER(BTRIM($1))
       AND observed_ssids IS NOT NULL
 ) t
-WHERE ssid IS NOT NULL AND ssid <> ''
+WHERE ssid IS NOT NULL AND BTRIM(ssid) <> ''
 ORDER BY ssid;
 """
 
 AP_MAC_ENTITY_SUMMARY_QUERY = """
 SELECT
-    $1::TEXT AS ap_mac,
+    COALESCE(MAX(BTRIM(ap_mac)), BTRIM($1)) AS ap_mac,
     COUNT(DISTINCT employee_id)
         FILTER (WHERE employee_id IS NOT NULL) AS users,
     COUNT(DISTINCT user_mac) AS devices,
@@ -615,29 +718,101 @@ SELECT
         0
     ) AS failure_rate,
     COALESCE(
-        ARRAY_AGG(DISTINCT ap_hostname)
-            FILTER (WHERE ap_hostname IS NOT NULL AND ap_hostname <> '' AND ap_hostname <> 'NA'),
+        ARRAY_AGG(DISTINCT BTRIM(ap_hostname))
+            FILTER (WHERE ap_hostname IS NOT NULL AND BTRIM(ap_hostname) <> '' AND UPPER(BTRIM(ap_hostname)) <> 'NA'),
         ARRAY[]::TEXT[]
     ) AS ap_hostnames,
     COALESCE(
-        ARRAY_AGG(DISTINCT location)
-            FILTER (WHERE location IS NOT NULL AND location <> '' AND location <> 'NA'),
+        ARRAY_AGG(DISTINCT BTRIM(location))
+            FILTER (WHERE location IS NOT NULL AND BTRIM(location) <> '' AND UPPER(BTRIM(location)) <> 'NA'),
         ARRAY[]::TEXT[]
-    ) AS locations
+    ) AS locations,
+    MIN(first_seen_timestamp) AS first_seen,
+    MAX(last_seen_timestamp) AS last_seen
 FROM wifi_user_summary
-WHERE ap_mac = $1;
+WHERE ap_mac IS NOT NULL
+  AND BTRIM(ap_mac) <> ''
+  AND UPPER(BTRIM(ap_mac)) <> 'NA'
+  AND LOWER(BTRIM(ap_mac)) = LOWER(BTRIM($1));
 """
 
 AP_MAC_ENTITY_SSIDS_QUERY = """
-SELECT DISTINCT ssid
+SELECT DISTINCT BTRIM(ssid) AS ssid
 FROM (
     SELECT UNNEST(observed_ssids) AS ssid
     FROM wifi_user_summary
-    WHERE ap_mac = $1
+    WHERE ap_mac IS NOT NULL
+      AND BTRIM(ap_mac) <> ''
+      AND UPPER(BTRIM(ap_mac)) <> 'NA'
+      AND LOWER(BTRIM(ap_mac)) = LOWER(BTRIM($1))
       AND observed_ssids IS NOT NULL
 ) t
-WHERE ssid IS NOT NULL AND ssid <> ''
+WHERE ssid IS NOT NULL AND BTRIM(ssid) <> ''
 ORDER BY ssid;
+"""
+
+RESOLVE_UNIVERSAL_ENTITY_QUERY = """
+WITH candidates AS (
+    (
+        SELECT 'Employee'::TEXT AS entity_type, employee_id::TEXT AS canonical_value, 1 AS priority
+        FROM wifi_user_summary
+        WHERE $2::BIGINT IS NOT NULL
+          AND employee_id = $2::BIGINT
+        LIMIT 1
+    )
+    UNION ALL
+    (
+        SELECT 'Device'::TEXT AS entity_type, BTRIM(user_mac) AS canonical_value, 2 AS priority
+        FROM wifi_user_summary
+        WHERE LOWER(BTRIM(user_mac)) = LOWER(BTRIM($1))
+        LIMIT 1
+    )
+    UNION ALL
+    (
+        SELECT 'AP MAC'::TEXT AS entity_type, BTRIM(ap_mac) AS canonical_value, 3 AS priority
+        FROM wifi_user_summary
+        WHERE ap_mac IS NOT NULL
+          AND BTRIM(ap_mac) <> ''
+          AND UPPER(BTRIM(ap_mac)) <> 'NA'
+          AND LOWER(BTRIM(ap_mac)) = LOWER(BTRIM($1))
+        LIMIT 1
+    )
+    UNION ALL
+    (
+        SELECT 'AP'::TEXT AS entity_type, BTRIM(ap_hostname) AS canonical_value, 4 AS priority
+        FROM wifi_user_summary
+        WHERE ap_hostname IS NOT NULL
+          AND BTRIM(ap_hostname) <> ''
+          AND UPPER(BTRIM(ap_hostname)) <> 'NA'
+          AND LOWER(BTRIM(ap_hostname)) = LOWER(BTRIM($1))
+        LIMIT 1
+    )
+    UNION ALL
+    (
+        SELECT 'Location'::TEXT AS entity_type, BTRIM(location) AS canonical_value, 5 AS priority
+        FROM wifi_user_summary
+        WHERE location IS NOT NULL
+          AND BTRIM(location) <> ''
+          AND UPPER(BTRIM(location)) <> 'NA'
+          AND LOWER(BTRIM(location)) = LOWER(BTRIM($1))
+        LIMIT 1
+    )
+    UNION ALL
+    (
+        SELECT 'SSID'::TEXT AS entity_type, BTRIM(u.s) AS canonical_value, 6 AS priority
+        FROM wifi_user_summary w
+        CROSS JOIN LATERAL UNNEST(w.observed_ssids) AS u(s)
+        WHERE w.observed_ssids IS NOT NULL
+          AND u.s IS NOT NULL
+          AND BTRIM(u.s) <> ''
+          AND LOWER(BTRIM(u.s)) = LOWER(BTRIM($1))
+        LIMIT 1
+    )
+)
+SELECT entity_type, canonical_value
+FROM candidates
+ORDER BY priority ASC
+LIMIT 1;
 """
 
 # ============================================================
@@ -758,7 +933,7 @@ ORDER BY mnemonic;
 GLOBAL_SEARCH_QUERY = """
 WITH location_hits AS (
     SELECT
-        location,
+        BTRIM(location) AS location,
         COUNT(DISTINCT employee_id) FILTER (WHERE employee_id IS NOT NULL) AS users,
         COUNT(DISTINCT user_mac) AS devices,
         COALESCE(
@@ -771,10 +946,10 @@ WITH location_hits AS (
         )::DOUBLE PRECISION AS failure_rate
     FROM wifi_user_summary
     WHERE location IS NOT NULL
-      AND location <> ''
-      AND location <> 'NA'
-      AND location ILIKE $1
-    GROUP BY location
+      AND BTRIM(location) <> ''
+      AND UPPER(BTRIM(location)) <> 'NA'
+      AND BTRIM(location) ILIKE $1
+    GROUP BY BTRIM(location)
 ),
 combined AS (
     -- Direct Location matches
@@ -797,7 +972,9 @@ combined AS (
         'Employee'::TEXT AS entity_type,
         employee_id::TEXT AS display_value,
         'employee_id'::TEXT AS matched_field,
-        MAX(location) FILTER (WHERE location IS NOT NULL AND location <> 'NA') AS location,
+        MAX(BTRIM(location)) FILTER (
+            WHERE location IS NOT NULL AND BTRIM(location) <> '' AND UPPER(BTRIM(location)) <> 'NA'
+        ) AS location,
         1::INTEGER AS users,
         COUNT(DISTINCT user_mac)::INTEGER AS devices,
         COALESCE(
@@ -817,12 +994,16 @@ combined AS (
 
     UNION ALL
 
-    -- Direct MAC matches
+    -- Direct MAC matches + Cross-entity Devices observed at matching Locations
     SELECT
         'MAC'::TEXT AS entity_type,
         user_mac AS display_value,
-        'user_mac'::TEXT AS matched_field,
-        NULLIF(location, 'NA') AS location,
+        CASE WHEN user_mac ILIKE $1 THEN 'user_mac' ELSE 'location_relation' END AS matched_field,
+        CASE
+            WHEN location IS NULL OR BTRIM(location) = '' OR UPPER(BTRIM(location)) = 'NA'
+            THEN NULL
+            ELSE BTRIM(location)
+        END AS location,
         (CASE WHEN employee_id IS NOT NULL THEN 1 ELSE 0 END)::INTEGER AS users,
         1::INTEGER AS devices,
         COALESCE(
@@ -833,10 +1014,17 @@ combined AS (
             ),
             0
         )::DOUBLE PRECISION AS failure_rate,
-        NULL::TEXT AS related_to,
-        3 AS priority
+        CASE
+            WHEN user_mac ILIKE $1 THEN NULL
+            ELSE BTRIM(location)
+        END AS related_to,
+        CASE WHEN user_mac ILIKE $1 THEN 3 ELSE 9 END AS priority
     FROM wifi_user_summary
     WHERE user_mac ILIKE $1
+       OR (
+           location IS NOT NULL
+           AND BTRIM(location) IN (SELECT location FROM location_hits)
+       )
 
     UNION ALL
 
@@ -846,8 +1034,12 @@ combined AS (
         ssid AS display_value,
         CASE WHEN ssid ILIKE $1 THEN 'ssid' ELSE 'location_relation' END AS matched_field,
         CASE
-            WHEN COUNT(DISTINCT location) FILTER (WHERE location IS NOT NULL AND location <> 'NA') = 1
-            THEN MAX(location) FILTER (WHERE location IS NOT NULL AND location <> 'NA')
+            WHEN COUNT(DISTINCT location) FILTER (
+                WHERE location IS NOT NULL AND location <> '' AND UPPER(location) <> 'NA'
+            ) = 1
+            THEN MAX(location) FILTER (
+                WHERE location IS NOT NULL AND location <> '' AND UPPER(location) <> 'NA'
+            )
             ELSE NULL
         END AS location,
         COUNT(DISTINCT employee_id) FILTER (WHERE employee_id IS NOT NULL)::INTEGER AS users,
@@ -869,10 +1061,10 @@ combined AS (
         SELECT
             employee_id,
             user_mac,
-            location,
+            BTRIM(location) AS location,
             total_success_count,
             total_failure_count,
-            UNNEST(observed_ssids) AS ssid
+            BTRIM(UNNEST(observed_ssids)) AS ssid
         FROM wifi_user_summary
         WHERE observed_ssids IS NOT NULL
     ) s_ssid
@@ -889,9 +1081,11 @@ combined AS (
     -- Direct AP matches + Cross-entity APs observed at matching Locations
     SELECT
         'AP'::TEXT AS entity_type,
-        ap_hostname AS display_value,
-        CASE WHEN ap_hostname ILIKE $1 THEN 'ap_hostname' ELSE 'location_relation' END AS matched_field,
-        MAX(location) FILTER (WHERE location IS NOT NULL AND location <> 'NA') AS location,
+        BTRIM(ap_hostname) AS display_value,
+        CASE WHEN BTRIM(ap_hostname) ILIKE $1 THEN 'ap_hostname' ELSE 'location_relation' END AS matched_field,
+        MAX(BTRIM(location)) FILTER (
+            WHERE location IS NOT NULL AND BTRIM(location) <> '' AND UPPER(BTRIM(location)) <> 'NA'
+        ) AS location,
         COUNT(DISTINCT employee_id) FILTER (WHERE employee_id IS NOT NULL)::INTEGER AS users,
         COUNT(DISTINCT user_mac)::INTEGER AS devices,
         COALESCE(
@@ -903,28 +1097,30 @@ combined AS (
             0
         )::DOUBLE PRECISION AS failure_rate,
         CASE
-            WHEN ap_hostname ILIKE $1 THEN NULL
-            ELSE MAX(location) FILTER (WHERE location IN (SELECT location FROM location_hits))
+            WHEN BTRIM(ap_hostname) ILIKE $1 THEN NULL
+            ELSE MAX(BTRIM(location)) FILTER (WHERE BTRIM(location) IN (SELECT location FROM location_hits))
         END AS related_to,
-        CASE WHEN ap_hostname ILIKE $1 THEN 5 ELSE 8 END AS priority
+        CASE WHEN BTRIM(ap_hostname) ILIKE $1 THEN 5 ELSE 8 END AS priority
     FROM wifi_user_summary
     WHERE ap_hostname IS NOT NULL
-      AND ap_hostname <> ''
-      AND ap_hostname <> 'NA'
+      AND BTRIM(ap_hostname) <> ''
+      AND UPPER(BTRIM(ap_hostname)) <> 'NA'
       AND (
-          ap_hostname ILIKE $1
-          OR location IN (SELECT location FROM location_hits)
+          BTRIM(ap_hostname) ILIKE $1
+          OR BTRIM(location) IN (SELECT location FROM location_hits)
       )
-    GROUP BY ap_hostname
+    GROUP BY BTRIM(ap_hostname)
 
     UNION ALL
 
     -- Direct AP MAC matches
     SELECT
         'AP MAC'::TEXT AS entity_type,
-        ap_mac AS display_value,
+        BTRIM(ap_mac) AS display_value,
         'ap_mac'::TEXT AS matched_field,
-        MAX(location) FILTER (WHERE location IS NOT NULL AND location <> 'NA') AS location,
+        MAX(BTRIM(location)) FILTER (
+            WHERE location IS NOT NULL AND BTRIM(location) <> '' AND UPPER(BTRIM(location)) <> 'NA'
+        ) AS location,
         COUNT(DISTINCT employee_id) FILTER (WHERE employee_id IS NOT NULL)::INTEGER AS users,
         COUNT(DISTINCT user_mac)::INTEGER AS devices,
         COALESCE(
@@ -939,10 +1135,10 @@ combined AS (
         6 AS priority
     FROM wifi_user_summary
     WHERE ap_mac IS NOT NULL
-      AND ap_mac <> ''
-      AND ap_mac <> 'NA'
-      AND ap_mac ILIKE $1
-    GROUP BY ap_mac
+      AND BTRIM(ap_mac) <> ''
+      AND UPPER(BTRIM(ap_mac)) <> 'NA'
+      AND BTRIM(ap_mac) ILIKE $1
+    GROUP BY BTRIM(ap_mac)
 
     UNION ALL
 
@@ -956,7 +1152,7 @@ combined AS (
         NULL::INTEGER AS devices,
         NULL::DOUBLE PRECISION AS failure_rate,
         NULL::TEXT AS related_to,
-        9 AS priority
+        10 AS priority
     FROM UNNEST($2::TEXT[]) AS fac
     WHERE fac ILIKE $1
 
@@ -972,7 +1168,7 @@ combined AS (
         NULL::INTEGER AS devices,
         NULL::DOUBLE PRECISION AS failure_rate,
         NULL::TEXT AS related_to,
-        10 AS priority
+        11 AS priority
     FROM UNNEST($3::TEXT[]) AS mnem
     WHERE mnem ILIKE $1
 )

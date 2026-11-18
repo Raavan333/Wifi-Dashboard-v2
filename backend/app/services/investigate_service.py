@@ -27,8 +27,17 @@ from app.schemas.investigate import (
     SSIDEntityResponse,
     TimelinePoint,
     TimelineResponse,
+    UniversalEntityResponse,
 )
 from app.utils.pagination import build_pagination_meta
+
+
+def _normalize_entity_value(value: str) -> str:
+    return value.strip()
+
+
+def _is_blank_or_na(value: str) -> bool:
+    return not value or value.upper() == "NA"
 
 
 def _build_entity_metrics(
@@ -122,6 +131,7 @@ class InvestigateService:
                 ap_mac=row["ap_mac"],
                 location=row["location"],
                 message=row["message"],
+                metadata=row["metadata"],
                 attempt_count=row["attempt_count"],
             )
             for row in rows
@@ -203,7 +213,11 @@ class InvestigateService:
     async def get_mac_details(
         self, user_mac: str
     ) -> Optional[DeviceDetail]:
-        row = await self._repo.get_mac_details(user_mac)
+        normalized = _normalize_entity_value(user_mac)
+        if not normalized:
+            return None
+
+        row = await self._repo.get_mac_details(normalized)
         if not row:
             return None
 
@@ -212,12 +226,12 @@ class InvestigateService:
         ssids = [s for s in (row["observed_ssids"] or []) if s]
         locations = (
             [row["location"]]
-            if row["location"] and row["location"] != "NA"
+            if row["location"] and row["location"].upper() != "NA"
             else []
         )
         aps = (
             [row["ap_hostname"]]
-            if row["ap_hostname"] and row["ap_hostname"] != "NA"
+            if row["ap_hostname"] and row["ap_hostname"].upper() != "NA"
             else []
         )
 
@@ -263,10 +277,25 @@ class InvestigateService:
     async def get_location_details(
         self, location: str
     ) -> LocationEntityResponse:
+        normalized = _normalize_entity_value(location)
+        if _is_blank_or_na(normalized):
+            return LocationEntityResponse(
+                location=normalized,
+                users=0,
+                devices=0,
+                success_count=0,
+                failure_count=0,
+            )
+
         summary_row, top_ssids, top_aps = await asyncio.gather(
-            self._repo.get_location_summary(location),
-            self._repo.get_location_top_ssids(location),
-            self._repo.get_location_top_aps(location),
+            self._repo.get_location_summary(normalized),
+            self._repo.get_location_top_ssids(normalized),
+            self._repo.get_location_top_aps(normalized),
+        )
+        canonical_location = (
+            summary_row["location"]
+            if summary_row and summary_row["location"]
+            else normalized
         )
         users = int(summary_row["users"] or 0) if summary_row else 0
         devices = int(summary_row["devices"] or 0) if summary_row else 0
@@ -283,7 +312,7 @@ class InvestigateService:
         ap_list = [dict(row) for row in top_aps]
 
         return LocationEntityResponse(
-            location=location,
+            location=canonical_location,
             users=users,
             devices=devices,
             success_count=success_count,
@@ -304,10 +333,25 @@ class InvestigateService:
         )
 
     async def get_ssid_details(self, ssid: str) -> SSIDEntityResponse:
+        normalized = _normalize_entity_value(ssid)
+        if not normalized:
+            return SSIDEntityResponse(
+                ssid=normalized,
+                users=0,
+                devices=0,
+                success_count=0,
+                failure_count=0,
+            )
+
         summary_row, locations, aps = await asyncio.gather(
-            self._repo.get_ssid_summary(ssid),
-            self._repo.get_ssid_locations(ssid),
-            self._repo.get_ssid_aps(ssid),
+            self._repo.get_ssid_summary(normalized),
+            self._repo.get_ssid_locations(normalized),
+            self._repo.get_ssid_aps(normalized),
+        )
+        canonical_ssid = (
+            summary_row["ssid"]
+            if summary_row and summary_row["ssid"]
+            else normalized
         )
         users = int(summary_row["users"] or 0) if summary_row else 0
         devices = int(summary_row["devices"] or 0) if summary_row else 0
@@ -322,7 +366,7 @@ class InvestigateService:
         )
 
         return SSIDEntityResponse(
-            ssid=ssid,
+            ssid=canonical_ssid,
             users=users,
             devices=devices,
             success_count=success_count,
@@ -341,34 +385,80 @@ class InvestigateService:
         )
 
     async def get_ap_details(self, ap_hostname: str) -> APEntityResponse:
+        normalized = _normalize_entity_value(ap_hostname)
+        if _is_blank_or_na(normalized):
+            return APEntityResponse(
+                ap_hostname=normalized,
+                users=0,
+                devices=0,
+                success_count=0,
+                failure_count=0,
+                failure_rate=0.0,
+            )
+
         summary_row, ssids = await asyncio.gather(
-            self._repo.get_ap_summary(ap_hostname),
-            self._repo.get_ap_ssids(ap_hostname),
+            self._repo.get_ap_summary(normalized),
+            self._repo.get_ap_ssids(normalized),
         )
+        canonical_ap = (
+            summary_row["ap_hostname"]
+            if summary_row and summary_row["ap_hostname"]
+            else normalized
+        )
+        users = int(summary_row["users"] or 0) if summary_row else 0
+        devices = int(summary_row["devices"] or 0) if summary_row else 0
+        success_count = (
+            int(summary_row["success_count"] or 0) if summary_row else 0
+        )
+        failure_count = (
+            int(summary_row["failure_count"] or 0) if summary_row else 0
+        )
+        failure_rate = (
+            float(summary_row["failure_rate"] or 0.0) if summary_row else 0.0
+        )
+
         return APEntityResponse(
-            ap_hostname=ap_hostname,
+            ap_hostname=canonical_ap,
             ap_macs=list(summary_row["ap_macs"] or []) if summary_row else [],
-            users=int(summary_row["users"] or 0) if summary_row else 0,
-            devices=int(summary_row["devices"] or 0) if summary_row else 0,
-            success_count=int(summary_row["success_count"] or 0)
-            if summary_row
-            else 0,
-            failure_count=int(summary_row["failure_count"] or 0)
-            if summary_row
-            else 0,
-            failure_rate=float(summary_row["failure_rate"] or 0.0)
-            if summary_row
-            else 0.0,
+            users=users,
+            devices=devices,
+            success_count=success_count,
+            failure_count=failure_count,
+            failure_rate=failure_rate,
             locations=list(summary_row["locations"] or [])
             if summary_row
             else [],
             ssids=[row["ssid"] for row in ssids if row["ssid"]],
+            first_seen=summary_row["first_seen"] if summary_row else None,
+            last_seen=summary_row["last_seen"] if summary_row else None,
+            metrics=_build_entity_metrics(
+                users=users,
+                devices=devices,
+                success_count=success_count,
+                failure_count=failure_count,
+            ),
         )
 
     async def get_ap_mac_details(self, ap_mac: str) -> APMacEntityResponse:
+        normalized = _normalize_entity_value(ap_mac)
+        if _is_blank_or_na(normalized):
+            return APMacEntityResponse(
+                ap_mac=normalized,
+                users=0,
+                devices=0,
+                success_count=0,
+                failure_count=0,
+                failure_rate=0.0,
+            )
+
         summary_row, ssids = await asyncio.gather(
-            self._repo.get_ap_mac_summary(ap_mac),
-            self._repo.get_ap_mac_ssids(ap_mac),
+            self._repo.get_ap_mac_summary(normalized),
+            self._repo.get_ap_mac_ssids(normalized),
+        )
+        canonical_mac = (
+            summary_row["ap_mac"]
+            if summary_row and summary_row["ap_mac"]
+            else normalized
         )
         users = int(summary_row["users"] or 0) if summary_row else 0
         devices = int(summary_row["devices"] or 0) if summary_row else 0
@@ -383,7 +473,7 @@ class InvestigateService:
         )
 
         return APMacEntityResponse(
-            ap_mac=ap_mac,
+            ap_mac=canonical_mac,
             ap_hostnames=list(summary_row["ap_hostnames"] or [])
             if summary_row
             else [],
@@ -396,12 +486,64 @@ class InvestigateService:
             success_count=success_count,
             failure_count=failure_count,
             failure_rate=failure_rate,
+            first_seen=summary_row["first_seen"] if summary_row else None,
+            last_seen=summary_row["last_seen"] if summary_row else None,
             metrics=_build_entity_metrics(
                 users=users,
                 devices=devices,
                 success_count=success_count,
                 failure_count=failure_count,
             ),
+        )
+
+    async def resolve_universal_entity(
+        self, value: str
+    ) -> UniversalEntityResponse:
+        normalized = _normalize_entity_value(value)
+        if _is_blank_or_na(normalized):
+            return UniversalEntityResponse(
+                query=value,
+                resolved=False,
+                entity_type=None,
+                canonical_value=None,
+                data=None,
+            )
+
+        employee_id = int(normalized) if normalized.isdigit() else None
+        match = await self._repo.resolve_universal_entity(
+            normalized, employee_id
+        )
+        if not match:
+            return UniversalEntityResponse(
+                query=value,
+                resolved=False,
+                entity_type=None,
+                canonical_value=None,
+                data=None,
+            )
+
+        entity_type = match["entity_type"]
+        canonical_value = match["canonical_value"]
+
+        if entity_type == "Employee":
+            data = await self.get_employee_overview(int(canonical_value))
+        elif entity_type == "Device":
+            data = await self.get_mac_details(canonical_value)
+        elif entity_type == "AP MAC":
+            data = await self.get_ap_mac_details(canonical_value)
+        elif entity_type == "AP":
+            data = await self.get_ap_details(canonical_value)
+        elif entity_type == "Location":
+            data = await self.get_location_details(canonical_value)
+        else:
+            data = await self.get_ssid_details(canonical_value)
+
+        return UniversalEntityResponse(
+            query=value,
+            resolved=True,
+            entity_type=entity_type,
+            canonical_value=canonical_value,
+            data=data,
         )
 
     async def get_filter_options(self) -> FilterOptionsResponse:

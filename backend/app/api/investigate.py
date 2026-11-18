@@ -18,6 +18,7 @@ from app.schemas.investigate import (
     RawEventsResponse,
     SSIDEntityResponse,
     TimelineResponse,
+    UniversalEntityResponse,
 )
 
 router = APIRouter(prefix="/investigate", tags=["Investigation"])
@@ -122,3 +123,11 @@ async def ap_mac_details(
     service: InvestigateServiceDep,
 ) -> APMacEntityResponse:
     return await service.get_ap_mac_details(ap_mac)
+
+
+@router.get("/entity/{value}", response_model=UniversalEntityResponse)
+async def resolve_universal_entity(
+    value: str,
+    service: InvestigateServiceDep,
+) -> UniversalEntityResponse:
+    return await service.resolve_universal_entity(value)

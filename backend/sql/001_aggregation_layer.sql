@@ -102,3 +102,19 @@ CREATE INDEX IF NOT EXISTS idx_wus_asset_id
 CREATE INDEX IF NOT EXISTS idx_wus_device_ip
     ON wifi_user_summary (device_ip)
     WHERE device_ip IS NOT NULL;
+
+-- 6. Case-insensitive, trimmed functional indexes for fast entity resolution
+CREATE INDEX IF NOT EXISTS idx_wus_user_mac_norm
+    ON wifi_user_summary (LOWER(BTRIM(user_mac)));
+
+CREATE INDEX IF NOT EXISTS idx_wus_location_norm
+    ON wifi_user_summary (LOWER(BTRIM(location)))
+    WHERE location IS NOT NULL AND BTRIM(location) <> '' AND UPPER(BTRIM(location)) <> 'NA';
+
+CREATE INDEX IF NOT EXISTS idx_wus_ap_hostname_norm
+    ON wifi_user_summary (LOWER(BTRIM(ap_hostname)))
+    WHERE ap_hostname IS NOT NULL AND BTRIM(ap_hostname) <> '' AND UPPER(BTRIM(ap_hostname)) <> 'NA';
+
+CREATE INDEX IF NOT EXISTS idx_wus_ap_mac_norm
+    ON wifi_user_summary (LOWER(BTRIM(ap_mac)))
+    WHERE ap_mac IS NOT NULL AND BTRIM(ap_mac) <> '' AND UPPER(BTRIM(ap_mac)) <> 'NA';

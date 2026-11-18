@@ -15,6 +15,7 @@ from app.queries.dashboard_queries import (
     ACTIVE_USERS_TREND_AGG_QUERY,
     ACTIVE_USERS_TREND_FALLBACK_QUERY,
     CONNECTIVITY_HEALTH_QUERY,
+    COVERAGE_METRICS_QUERY,
     DATA_QUALITY_QUERY,
     DEVICE_DISTRIBUTION_QUERY,
     DURATION_DISTRIBUTION_QUERY,
@@ -117,6 +118,9 @@ class DashboardRepository:
 
     async def get_data_quality(self) -> Optional[Record]:
         return await self._db.fetchrow(DATA_QUALITY_QUERY)
+
+    async def get_coverage_metrics(self) -> Optional[Record]:
+        return await self._db.fetchrow(COVERAGE_METRICS_QUERY)
 
     async def get_top_aps(self, limit: int = TOP_APS_LIMIT) -> list[Record]:
         return await self._db.fetch(TOP_APS_QUERY, limit)

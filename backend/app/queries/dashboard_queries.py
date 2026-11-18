@@ -281,27 +281,27 @@ LIMIT $1;
 
 LOCATION_USERS_DISTRIBUTION_QUERY = """
 SELECT
-    location,
+    BTRIM(location) AS location,
     COUNT(DISTINCT employee_id) AS user_count
 FROM wifi_user_summary
 WHERE location IS NOT NULL
-  AND location <> ''
-  AND location <> 'NA'
+  AND BTRIM(location) <> ''
+  AND UPPER(BTRIM(location)) <> 'NA'
   AND employee_id IS NOT NULL
-GROUP BY location
+GROUP BY BTRIM(location)
 ORDER BY user_count DESC
 LIMIT $1;
 """
 
 LOCATION_DEVICES_DISTRIBUTION_QUERY = """
 SELECT
-    location,
+    BTRIM(location) AS location,
     COUNT(DISTINCT user_mac) AS device_count
 FROM wifi_user_summary
 WHERE location IS NOT NULL
-  AND location <> ''
-  AND location <> 'NA'
-GROUP BY location
+  AND BTRIM(location) <> ''
+  AND UPPER(BTRIM(location)) <> 'NA'
+GROUP BY BTRIM(location)
 ORDER BY device_count DESC
 LIMIT $1;
 """
@@ -408,14 +408,14 @@ SELECT
     COUNT(DISTINCT user_mac)
         FILTER (
             WHERE location IS NOT NULL
-              AND location <> ''
-              AND location <> 'NA'
+              AND BTRIM(location) <> ''
+              AND UPPER(BTRIM(location)) <> 'NA'
         ) AS location_mapped_devices,
     COUNT(DISTINCT user_mac)
         FILTER (
             WHERE ap_hostname IS NOT NULL
-              AND ap_hostname <> ''
-              AND ap_hostname <> 'NA'
+              AND BTRIM(ap_hostname) <> ''
+              AND UPPER(BTRIM(ap_hostname)) <> 'NA'
         ) AS ap_mapped_devices,
     COUNT(DISTINCT user_mac)
         FILTER (
@@ -425,13 +425,31 @@ SELECT
 FROM wifi_user_summary;
 """
 
+COVERAGE_METRICS_QUERY = """
+SELECT
+    COUNT(DISTINCT user_mac) AS total_devices,
+    COUNT(DISTINCT user_mac)
+        FILTER (
+            WHERE ap_hostname IS NOT NULL
+              AND BTRIM(ap_hostname) <> ''
+              AND UPPER(BTRIM(ap_hostname)) <> 'NA'
+        ) AS ap_mapped_devices,
+    COUNT(DISTINCT user_mac)
+        FILTER (
+            WHERE location IS NOT NULL
+              AND BTRIM(location) <> ''
+              AND UPPER(BTRIM(location)) <> 'NA'
+        ) AS location_mapped_devices
+FROM wifi_user_summary;
+"""
+
 # ============================================================
 # AP ANALYTICS
 # ============================================================
 
 TOP_APS_QUERY = """
 SELECT
-    ap_hostname,
+    BTRIM(ap_hostname) AS ap_hostname,
     COUNT(DISTINCT employee_id)
         FILTER (WHERE employee_id IS NOT NULL) AS users,
     COUNT(DISTINCT user_mac) AS devices,
@@ -447,16 +465,16 @@ SELECT
     ) AS failure_rate
 FROM wifi_user_summary
 WHERE ap_hostname IS NOT NULL
-  AND ap_hostname <> ''
-  AND ap_hostname <> 'NA'
-GROUP BY ap_hostname
+  AND BTRIM(ap_hostname) <> ''
+  AND UPPER(BTRIM(ap_hostname)) <> 'NA'
+GROUP BY BTRIM(ap_hostname)
 ORDER BY users DESC, devices DESC
 LIMIT $1;
 """
 
 WORST_APS_QUERY = """
 SELECT
-    ap_hostname,
+    BTRIM(ap_hostname) AS ap_hostname,
     COUNT(DISTINCT employee_id)
         FILTER (WHERE employee_id IS NOT NULL) AS users,
     COUNT(DISTINCT user_mac) AS devices,
@@ -472,9 +490,9 @@ SELECT
     ) AS failure_rate
 FROM wifi_user_summary
 WHERE ap_hostname IS NOT NULL
-  AND ap_hostname <> ''
-  AND ap_hostname <> 'NA'
-GROUP BY ap_hostname
+  AND BTRIM(ap_hostname) <> ''
+  AND UPPER(BTRIM(ap_hostname)) <> 'NA'
+GROUP BY BTRIM(ap_hostname)
 HAVING COALESCE(SUM(total_success_count + total_failure_count), 0) >= $1
 ORDER BY failure_rate DESC, failure_count DESC
 LIMIT $2;

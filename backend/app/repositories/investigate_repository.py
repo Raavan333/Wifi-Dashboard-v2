@@ -14,7 +14,7 @@ from app.queries.investigate_queries import (
     EMPLOYEE_ENTITY_RELATIONS_QUERY,
     EMPLOYEE_ENTITY_SSIDS_QUERY,
     EMPLOYEE_PROFILE_QUERY,
-    EVENT_TIMELINE_QUERY,
+    EVENT_TIMELINE_QUERY_TEMPLATE,
     FILTER_APS_QUERY,
     FILTER_FACILITIES_SKIP_SCAN_QUERY,
     FILTER_LOCATIONS_QUERY,
@@ -30,6 +30,7 @@ from app.queries.investigate_queries import (
     LOCATION_ENTITY_SUMMARY_QUERY,
     LOCATION_TOP_APS_QUERY,
     LOCATION_TOP_SSIDS_QUERY,
+    RESOLVE_UNIVERSAL_ENTITY_QUERY,
     SSID_APS_QUERY,
     SSID_ENTITY_SUMMARY_QUERY,
     SSID_LOCATIONS_QUERY,
@@ -69,6 +70,13 @@ ATTEMPT_SORT_COLUMN_MAP = {
     "attempt_count": "attempt_count",
 }
 
+TIMELINE_BUCKET_EXPR_MAP = {
+    "hour": "date_trunc('hour', e.appeared_timestamp)",
+    "day": "DATE(e.appeared_timestamp)",
+    "week": "date_trunc('week', e.appeared_timestamp)",
+    "month": "date_trunc('month', e.appeared_timestamp)",
+}
+
 
 class InvestigateRepository:
     def __init__(self, database: Database = db) -> None:
@@ -83,6 +91,7 @@ class InvestigateRepository:
             or filters.ssids
             or filters.start_timestamp is not None
             or filters.end_timestamp is not None
+            or (filters.query and filters.query.strip())
         )
 
     def _build_filters(
@@ -112,6 +121,17 @@ class InvestigateRepository:
                 filters.start_timestamp,
                 filters.end_timestamp,
             )
+            if filters.query and filters.query.strip():
+                pattern = f"%{filters.query.strip()}%"
+                fields = filters.search_fields or ["raw_message"]
+                idx = builder._add_param(pattern)
+                clauses: list[str] = []
+                if "raw_message" in fields:
+                    clauses.append(f"e.raw_message ILIKE ${idx}")
+                if "metadata" in fields:
+                    clauses.append(f"e.metadata::TEXT ILIKE ${idx}")
+                if clauses:
+                    builder.raw(" OR ".join(clauses))
         elif filters.ssids:
             builder.array_overlaps("s.observed_ssids", filters.ssids)
 
@@ -299,13 +319,12 @@ class InvestigateRepository:
         self, filters: InvestigationRequest
     ) -> list[Record]:
         builder = self._build_filters(filters, summary_only=False)
-        query = (
-            EVENT_TIMELINE_QUERY
-            + builder.build_where()
-            + """
-            GROUP BY activity_date
-            ORDER BY activity_date ASC
-            """
+        bucket_expr = TIMELINE_BUCKET_EXPR_MAP.get(
+            filters.bucket, "DATE(e.appeared_timestamp)"
+        )
+        query = EVENT_TIMELINE_QUERY_TEMPLATE.format(
+            bucket_expr=bucket_expr,
+            where_clause=builder.build_where(),
         )
         return await self._db.fetch(query, *builder.params)
 
@@ -354,8 +373,18 @@ class InvestigateRepository:
         return await self._db.fetch(EMPLOYEE_ENTITY_SSIDS_QUERY, employee_id)
 
     async def get_mac_details(self, user_mac: str) -> Optional[Record]:
-        query = USER_DEVICES_QUERY_BASE + " WHERE user_mac = $1"
+        query = (
+            USER_DEVICES_QUERY_BASE
+            + " WHERE LOWER(BTRIM(user_mac)) = LOWER(BTRIM($1))"
+        )
         return await self._db.fetchrow(query, user_mac)
+
+    async def resolve_universal_entity(
+        self, value: str, employee_id: Optional[int]
+    ) -> Optional[Record]:
+        return await self._db.fetchrow(
+            RESOLVE_UNIVERSAL_ENTITY_QUERY, value, employee_id
+        )
 
     async def get_location_summary(self, location: str) -> Optional[Record]:
         return await self._db.fetchrow(LOCATION_ENTITY_SUMMARY_QUERY, location)

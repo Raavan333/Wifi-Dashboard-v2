@@ -1,0 +1,921 @@
+# WIFI OBSERVABILITY & INVESTIGATION PLATFORM
+## PHASE 3 BACKEND EVOLUTION SPECIFICATION
+
+This document supersedes all previous enhancement requests.
+
+The current backend is already operational and largely validated.
+
+The goal is NOT to rewrite the backend.
+
+The goal is to evolve the platform from:
+
+```text
+Dashboard
++
+Entity Endpoints
+```
+
+into:
+
+```text
+Dashboard
+
++
+Investigation Engine
+
++
+Entity Graph
+
++
+Observability Layer
+
++
+Network Intelligence Platform
+```
+
+without breaking existing APIs.
+
+---
+
+# CURRENT VALIDATION STATUS
+
+The following endpoints are considered certified and operational:
+
+```text
+/health
+
+/dashboard
+/dashboard/summary
+/dashboard/population
+/dashboard/connectivity
+/dashboard/ssid
+/dashboard/location
+/dashboard/activity
+/dashboard/data-quality
+/dashboard/ap
+/dashboard/inactive-users
+/dashboard/rare-users
+
+/investigate/options
+/investigate/events
+/investigate/timeline
+/investigate/user/{employee_id}
+/
+/investigate/mac/{user_mac}
+/investigate/location/{location}
+/investigate/ssid/{ssid}
+/investigate/ap/{ap_hostname}
+```
+
+Existing endpoint behavior should be preserved whenever possible.
+
+---
+
+# P0 - VALIDATED DEFECTS
+
+These are correctness or platform issues and should be addressed before building new capabilities.
+
+---
+
+## DEFECT-001
+
+Recovery Analysis
+
+Current implementation:
+
+```text
+~39 seconds
+```
+
+Cause:
+
+```sql
+7.4M row scan
+
+GROUP BY user_mac
+```
+
+Required:
+
+Recovery state must be materialized and maintained during the existing incremental summary update process.
+
+Suggested fields:
+
+```sql
+recovered_after_failure BOOLEAN
+
+first_fail_timestamp TIMESTAMPTZ
+
+last_success_after_fail TIMESTAMPTZ
+```
+
+Recovery must remain exact.
+
+Do not replace with heuristics.
+
+---
+
+## DEFECT-003
+
+Active User Trend
+
+Current runtime:
+
+```text
+~13.6 seconds
+```
+
+Cause:
+
+Daily aggregation over event history.
+
+Required:
+
+Introduce daily aggregation table.
+
+Examples:
+
+```text
+daily_active_users
+
+daily_user_statistics
+```
+
+Dashboard must consume summary data.
+
+---
+
+## DEFECT-004
+
+UX Missing counts differ between endpoints.
+
+Required:
+
+One canonical definition:
+
+```sql
+ux_available = false
+```
+
+must be used platform-wide.
+
+---
+
+## DEFECT-005
+
+Valid User classification mismatch.
+
+Current:
+
+```text
+Expected
+10508
+
+Returned
+11029
+```
+
+Cause:
+
+Device count used instead of user count.
+
+Required:
+
+Valid User means:
+
+```sql
+COUNT(DISTINCT employee_id)
+
+WHERE
+
+employee_id IS NOT NULL
+AND total_success_count >= 1
+```
+
+---
+
+## DEFECT-006
+
+Inactive Users uses:
+
+```sql
+NOW()
+```
+
+Current dataset is historical.
+
+Required:
+
+Reference timestamp should derive from:
+
+```sql
+MAX(last_seen_timestamp)
+```
+
+within current dataset.
+
+---
+
+## DEFECT-008
+
+Investigation Summary device count mismatch.
+
+Dashboard:
+
+```text
+15869
+```
+
+Investigation:
+
+```text
+15859
+```
+
+Required:
+
+One canonical definition.
+
+---
+
+## DEFECT-010
+
+Success rate mismatch.
+
+Dashboard:
+
+```text
+18.32%
+```
+
+Investigation:
+
+```text
+16.01%
+```
+
+Required:
+
+One success-rate definition platform-wide.
+
+---
+
+## DEFECT-012
+
+Blank AP hostnames appear in entity views.
+
+Examples:
+
+```json
+{
+  "ap_hostname": ""
+}
+```
+
+Required:
+
+Normalize:
+
+```sql
+NULL
+''
+NA
+```
+
+Globally.
+
+---
+
+# P1 - HIGHEST VALUE NEW CAPABILITIES
+
+---
+
+## ENH-013
+
+Case-Insensitive Entity Resolution
+
+Current:
+
+```text
+Unknown
+```
+
+works.
+
+```text
+unknown
+```
+
+does not.
+
+Required:
+
+Entity endpoints must support:
+
+```text
+case-insensitive
+
+trimmed
+
+normalized
+```
+
+lookups.
+
+Applies to:
+
+```text
+location
+
+ssid
+
+ap_hostname
+
+ap_mac
+```
+
+Examples:
+
+```text
+Unknown
+unknown
+UNKNOWN
+ Unknown
+```
+
+must resolve identically.
+
+---
+
+## ENH-014
+
+Universal Entity Resolution Endpoint
+
+Create:
+
+```http
+GET /investigate/entity/{value}
+```
+
+Backend determines:
+
+```text
+SSID
+
+Location
+
+AP
+
+AP MAC
+
+Employee
+
+Device
+```
+
+Automatically.
+
+Purpose:
+
+Entity exploration.
+
+---
+
+## ENH-015
+
+Rich Search Results
+
+Current:
+
+```json
+{
+  "entity_type":"AP",
+  "display_value":"INDEL..."
+}
+```
+
+Required:
+
+Return context.
+
+Example:
+
+```json
+{
+  "entity_type":"AP",
+
+  "display_value":"INDEL...",
+
+  "location":"Noida5",
+
+  "users":9,
+
+  "devices":9,
+
+  "failure_rate":7.31
+}
+```
+
+Similarly enrich:
+
+```text
+SSID
+
+Location
+
+Employee
+
+Device
+```
+
+search responses.
+
+---
+
+## ENH-016
+
+Cross-Entity Search
+
+Current:
+
+Searching:
+
+```text
+yamuna
+```
+
+returns only direct matches.
+
+Required:
+
+Search response should surface related entities.
+
+Example:
+
+```text
+Location
+
+SSIDs
+
+APs
+
+Devices
+```
+
+where relevant.
+
+---
+
+# P1 - AP IDENTITY GRAPH
+
+Current:
+
+```http
+GET /investigate/ap/{ap_hostname}
+```
+
+exists.
+
+AP MAC support is missing.
+
+---
+
+## ENH-017
+
+Extend AP Hostname Endpoint
+
+Add:
+
+```json
+{
+  "ap_macs": [...]
+}
+```
+
+Response should contain:
+
+```text
+Hostname
+
+AP MACs
+
+Locations
+
+SSIDs
+
+Users
+
+Devices
+
+Successes
+
+Failures
+
+Failure Rate
+```
+
+---
+
+## ENH-018
+
+Create AP MAC Endpoint
+
+```http
+GET /investigate/ap-mac/{ap_mac}
+```
+
+Return:
+
+```json
+{
+  "ap_mac":"...",
+
+  "ap_hostnames":[...],
+
+  "locations":[...],
+
+  "ssids":[...],
+
+  "users":...,
+
+  "devices":...,
+
+  "success_count":...,
+
+  "failure_count":...,
+
+  "failure_rate":...,
+
+  "first_seen":"...",
+
+  "last_seen":"..."
+}
+```
+
+---
+
+# P2 - ENTITY GRAPH
+
+Every entity should expose related entities where applicable.
+
+---
+
+## Employee
+
+Expose:
+
+```text
+Devices
+
+SSIDs
+
+Locations
+
+APs
+```
+
+---
+
+## Device
+
+Expose:
+
+```text
+Employee
+
+SSIDs
+
+Locations
+
+APs
+```
+
+---
+
+## SSID
+
+Expose:
+
+```text
+Users
+
+Devices
+
+Locations
+
+APs
+```
+
+---
+
+## Location
+
+Expose:
+
+```text
+Users
+
+Devices
+
+SSIDs
+
+APs
+```
+
+---
+
+## AP Hostname
+
+Expose:
+
+```text
+AP MACs
+
+Locations
+
+SSIDs
+
+Users
+
+Devices
+```
+
+---
+
+## AP MAC
+
+Expose:
+
+```text
+Hostnames
+
+Locations
+
+SSIDs
+
+Users
+
+Devices
+```
+
+---
+
+# P2 - INVESTIGATION QUERY ENGINE
+
+Current APIs are entity-driven.
+
+Future state must be query-driven.
+
+Create a generic investigation engine.
+
+---
+
+## ENH-019
+
+Support arbitrary combinations:
+
+```json
+{
+  "ssids":[...],
+
+  "locations":[...],
+
+  "ap_hostnames":[...],
+
+  "ap_macs":[...],
+
+  "statuses":[...],
+
+  "mnemonics":[...],
+
+  "facilities":[...]
+}
+```
+
+---
+
+## ENH-020
+
+Support metric filters:
+
+```json
+{
+  "min_failure_count":10,
+
+  "max_exclusion_count":5,
+
+  "min_success_count":50,
+
+  "min_appearance_count":20,
+
+  "min_duration_days":30
+}
+```
+
+---
+
+## ENH-021
+
+Support grouping:
+
+```json
+"group_by":
+"user"
+
+"group_by":
+"device"
+
+"group_by":
+"ssid"
+
+"group_by":
+"location"
+
+"group_by":
+"ap"
+
+"group_by":
+"ap_mac"
+
+"group_by":
+"event"
+```
+
+Same filter engine.
+
+Different aggregation layer.
+
+---
+
+# P3 - ANALYTICS ENRICHMENTS
+
+---
+
+## ENH-022
+
+AP Coverage Analytics
+
+Current:
+
+```text
+~7.6%
+```
+
+coverage.
+
+Expose:
+
+```json
+{
+  "ap_coverage": ...,
+
+  "mapped_devices": ...,
+
+  "unmapped_devices": ...
+}
+```
+
+---
+
+## ENH-023
+
+Location Coverage Analytics
+
+Current:
+
+Unknown dominates.
+
+Expose:
+
+```json
+{
+  "location_coverage": ...
+}
+```
+
+Dashboard KPI.
+
+---
+
+## ENH-024
+
+Message Search
+
+Support:
+
+```json
+{
+  "query":"Cred Fail",
+
+  "search_fields":[
+      "raw_message"
+  ]
+}
+```
+
+Use:
+
+```sql
+raw_message
+
+metadata
+```
+
+---
+
+## ENH-025
+
+Time-Aware Analytics
+
+Support:
+
+```json
+{
+  "start_timestamp":"",
+  "end_timestamp":"",
+
+  "bucket":"hour"
+}
+```
+
+Allowed:
+
+```text
+hour
+
+day
+
+week
+
+month
+```
+
+---
+
+# P4 - FRONTEND EFFICIENCY SUPPORT
+
+Entity APIs should return enough context to avoid N+1 API calls.
+
+Example:
+
+```text
+SSID View
+
+already includes:
+
+Locations
+
+APs
+
+Metrics
+```
+
+Continue this philosophy everywhere.
+
+Frontend should rarely require more than:
+
+```text
+one entity API
+```
+
+to render an investigation panel.
+
+---
+
+# FINAL GOAL
+
+The platform should evolve into:
+
+```text
+WiFi Observability Platform
+
++
+Network Intelligence
+
++
+Entity Graph
+
++
+Investigation Engine
+
++
+Time-Series Analytics
+
++
+Root Cause Analysis
+```
+
+rather than a collection of independent reports.
+
+Every enhancement should move the architecture toward:
+
+```text
+Search
+→ Entity
+→ Relationships
+→ Query
+→ Analytics
+→ Investigation
+```
+
+without breaking existing dashboard or investigation workflows.

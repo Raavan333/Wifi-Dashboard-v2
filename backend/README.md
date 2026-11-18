@@ -58,25 +58,26 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4
 - `GET /dashboard/population`
 - `GET /dashboard/connectivity` (includes `Success Rate`, `Failure Rate`, and `Recovery Rate`)
 - `GET /dashboard/ssid` (explicitly reports `available: false` when `FAIL` events have no SSID values)
-- `GET /dashboard/location`
+- `GET /dashboard/location` (exposes `location_coverage`)
 - `GET /dashboard/activity` (uses `daily_active_user_summary` when available)
-- `GET /dashboard/data-quality` (distinct `valid_users`, plus `Location Coverage %`, `AP Coverage %`, `Employee Mapping %`, `UX Enrichment %`, `SSID Coverage`)
-- `GET /dashboard/ap`
+- `GET /dashboard/data-quality` (distinct `valid_users`, `ap_coverage`, `location_coverage`, plus `Employee Mapping %`, `UX Enrichment %`, `SSID Coverage`)
+- `GET /dashboard/ap` (exposes `ap_coverage: {ap_coverage, mapped_devices, unmapped_devices}`)
 - `GET /dashboard/inactive-users?page=1&page_size=50` (anchored to `MAX(last_seen_timestamp)`)
 - `GET /dashboard/rare-users?page=1&page_size=50`
 
 ### Investigation
 - `GET /investigate/search?query=...&page=1&page_size=20` (enriched cross-entity results)
 - `GET /investigate/options` (300s TTL Cached, recursive B-tree index skip-scans)
-- `POST /investigate/events` (generic query engine supporting entity/numeric/temporal/boolean filters, `group_by`, `group_mode=raw|authentication_attempt`, max `page_size=500`)
-- `POST /investigate/timeline`
+- `GET /investigate/entity/{value}` (universal auto-detecting entity resolver across Employee, Device, AP MAC, AP, Location, SSID)
+- `POST /investigate/events` (generic query engine supporting entity/numeric/temporal/boolean filters, `raw_message`/`metadata` search, `group_by`, `group_mode=raw|authentication_attempt`, max `page_size=500`)
+- `POST /investigate/timeline` (supports `bucket=hour|day|week|month`)
 - `POST /investigate/summary` (summary-consistent with Dashboard when no event-only filters are applied)
 - `GET /investigate/user/{employee_id}`
-- `GET /investigate/mac/{user_mac}`
-- `GET /investigate/location/{location}`
-- `GET /investigate/ssid/{ssid}`
-- `GET /investigate/ap/{ap_hostname}`
-- `GET /investigate/ap-mac/{ap_mac}`
+- `GET /investigate/mac/{user_mac}` (case-insensitive, trimmed lookup)
+- `GET /investigate/location/{location}` (case-insensitive, trimmed lookup)
+- `GET /investigate/ssid/{ssid}` (case-insensitive, trimmed lookup)
+- `GET /investigate/ap/{ap_hostname}` (case-insensitive, trimmed lookup with `ap_macs`, `first_seen`, `last_seen`, `metrics`)
+- `GET /investigate/ap-mac/{ap_mac}` (case-insensitive, trimmed lookup with `ap_hostnames`, `first_seen`, `last_seen`, `metrics`)
 
 ## Query Analysis & Recommended Composite Indexes (Optional for 7.4M+ Scale)
 

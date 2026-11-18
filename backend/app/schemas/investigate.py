@@ -1,7 +1,7 @@
 from datetime import date, datetime
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional, Union
 
-from pydantic import Field
+from pydantic import Field, field_validator
 
 from app.schemas.common import APIModel, PaginationMeta
 
@@ -26,6 +26,12 @@ class InvestigationRequest(APIModel):
     asset_ids: list[str] = Field(default_factory=list)
     device_ips: list[str] = Field(default_factory=list)
 
+    # Message & metadata search (ENH-024)
+    query: Optional[str] = Field(default=None, max_length=255)
+    search_fields: list[Literal["raw_message", "metadata"]] = Field(
+        default_factory=lambda: ["raw_message"]
+    )
+
     # Numeric filters
     min_success_count: Optional[int] = Field(default=None, ge=0)
     max_success_count: Optional[int] = Field(default=None, ge=0)
@@ -38,13 +44,14 @@ class InvestigationRequest(APIModel):
     min_duration_days: Optional[float] = Field(default=None, ge=0)
     max_duration_days: Optional[float] = Field(default=None, ge=0)
 
-    # Temporal filters
+    # Temporal filters & time bucketing (ENH-025)
     first_seen_after: Optional[datetime] = None
     first_seen_before: Optional[datetime] = None
     last_seen_after: Optional[datetime] = None
     last_seen_before: Optional[datetime] = None
     start_timestamp: Optional[datetime] = None
     end_timestamp: Optional[datetime] = None
+    bucket: Literal["hour", "day", "week", "month"] = "day"
 
     # Boolean filters
     ux_available: Optional[bool] = None
@@ -73,6 +80,21 @@ class InvestigationRequest(APIModel):
     page_size: int = Field(default=50, ge=1, le=500)
     sort_by: Optional[str] = None
     sort_order: Literal["asc", "desc"] = "desc"
+
+    @field_validator(
+        "first_seen_after",
+        "first_seen_before",
+        "last_seen_after",
+        "last_seen_before",
+        "start_timestamp",
+        "end_timestamp",
+        mode="before",
+    )
+    @classmethod
+    def _empty_string_to_none(cls, value: Any) -> Any:
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
 
 
 class InvestigationSummary(APIModel):
@@ -111,6 +133,7 @@ class RawEvent(APIModel):
     ap_mac: Optional[str] = None
     location: Optional[str]
     message: Optional[str] = None
+    metadata: Optional[Any] = None
     attempt_count: Optional[int] = None
 
 
@@ -258,6 +281,9 @@ class APEntityResponse(APIModel):
     failure_rate: float
     locations: List[str] = Field(default_factory=list)
     ssids: List[str] = Field(default_factory=list)
+    first_seen: Optional[datetime] = None
+    last_seen: Optional[datetime] = None
+    metrics: EntityMetrics = Field(default_factory=EntityMetrics)
 
 
 class APMacEntityResponse(APIModel):
@@ -270,4 +296,25 @@ class APMacEntityResponse(APIModel):
     success_count: int
     failure_count: int
     failure_rate: float
+    first_seen: Optional[datetime] = None
+    last_seen: Optional[datetime] = None
     metrics: EntityMetrics = Field(default_factory=EntityMetrics)
+
+
+class UniversalEntityResponse(APIModel):
+    query: str
+    resolved: bool
+    entity_type: Optional[
+        Literal["Employee", "Device", "AP MAC", "AP", "Location", "SSID"]
+    ] = None
+    canonical_value: Optional[str] = None
+    data: Optional[
+        Union[
+            EmployeeOverviewResponse,
+            DeviceDetail,
+            APMacEntityResponse,
+            APEntityResponse,
+            LocationEntityResponse,
+            SSIDEntityResponse,
+        ]
+    ] = None

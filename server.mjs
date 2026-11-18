@@ -27,6 +27,7 @@ const ENDPOINTS = [
   "GET /investigate/ssid/{ssid}",
   "GET /investigate/ap/{ap_hostname}",
   "GET /investigate/ap-mac/{ap_mac}",
+  "GET /investigate/entity/{value}",
 ];
 
 const server = http.createServer((req, res) => {
