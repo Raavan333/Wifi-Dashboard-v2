@@ -1,0 +1,735 @@
+Send Gemini the following response.
+
+FINAL BACKEND IMPLEMENTATION AUTHORIZATION
+
+I have now provided the architecture vision, business rules, actual PostgreSQL schema, actual status values, row counts, indexing strategy, performance characteristics and frontend requirements.
+
+Proceed with implementation.
+
+Do not stop unless a hard schema contradiction is encountered.
+
+Do not make architectural assumptions outside what is defined below.
+
+Runtime & Repository Structure
+
+Implement using:
+
+Python 3.11+
+
+FastAPI
+
+asyncpg
+
+Pydantic v2
+
+uvicorn
+
+
+Create everything under:
+
+backend/
+
+
+The temporary Node.js implementation created during import should be removed.
+
+This backend is intended for my deployment environment and PostgreSQL server, not the AI Studio runtime.
+
+Routing
+
+Mount endpoints directly.
+
+Do NOT use:
+
+/api
+/api/v1
+
+
+Use:
+
+/health
+
+/dashboard
+/dashboard/ap
+/dashboard/inactive-users
+/dashboard/rare-users
+
+/investigate/search
+/investigate/options
+/investigate/events
+/investigate/timeline
+/investigate/summary
+
+/investigate/user/{employee_id}
+/
+/investigate/mac/{user_mac}
+
+/investigate/location/{location}
+
+/investigate/ssid/{ssid}
+
+/investigate/ap/{ap_hostname}
+
+Actual Database Facts
+Table Sizes
+wifi_event_history
+7,404,600 rows
+
+wifi_user_summary
+15,869 rows
+
+Event Table
+wifi_event_history
+
+
+Columns:
+
+id
+
+user_mac
+
+facility
+
+mnemonic
+
+status
+
+ssid
+
+appeared_timestamp
+
+elasticsearch_timestamp
+
+ingestion_delay_seconds
+
+raw_message
+
+metadata
+
+created_at
+
+Summary Table
+wifi_user_summary
+
+
+Columns:
+
+user_mac
+
+first_seen_timestamp
+
+last_seen_timestamp
+
+total_appearance_count
+
+total_success_count
+
+total_failure_count
+
+total_exclusion_count
+
+last_event_status
+
+ux_available
+
+ux_timestamp
+
+ux_last_queried_timestamp
+
+employee_id
+
+asset_id
+
+device_ip
+
+location
+
+ap_mac
+
+ap_hostname
+
+observed_ssids
+
+observed_duration
+
+created_at
+
+updated_at
+
+Actual Status Values
+
+Only these values exist:
+
+FAIL
+SUCCESS
+UNKNOWN
+
+
+Do NOT assume:
+
+FAILURE
+FAILED
+EXCLUSION
+
+
+Any existing query using:
+
+status='FAILURE'
+
+
+must be corrected.
+
+Actual Message Column
+
+Message field is:
+
+raw_message
+
+
+Frontend may receive it as:
+
+{
+  "message": "..."
+}
+
+Core Business Definitions
+User
+
+A user means:
+
+employee_id
+
+
+For user analytics use:
+
+COUNT(DISTINCT employee_id)
+
+Device
+
+A device means:
+
+user_mac
+
+
+For device analytics use:
+
+COUNT(DISTINCT user_mac)
+
+Valid User
+
+Definition:
+
+employee_id IS NOT NULL
+AND total_success_count >= 1
+
+
+This is the final definition.
+
+UX Missing
+
+Definition:
+
+ux_available = false
+
+
+A valid user may still be UX missing.
+
+These concepts are independent.
+
+Unmapped User
+
+Definition:
+
+employee_id IS NULL
+
+Invalid Device
+
+Definition:
+
+employee_id IS NULL
+AND total_success_count = 0
+
+Investigation Filters
+
+Add the following filter fields.
+
+valid_users_only: bool
+
+ux_available: Optional[bool]
+
+unmapped_users_only: bool
+
+invalid_devices_only: bool
+
+
+These support dashboard drill-through.
+
+Event Enrichment Requirement
+
+wifi_event_history does NOT contain:
+
+employee_id
+
+location
+
+ap_hostname
+
+ux_available
+
+observed_ssids
+
+
+Therefore:
+
+ALL investigation endpoints must enrich event data via:
+
+wifi_event_history e
+
+JOIN wifi_user_summary s
+ON e.user_mac = s.user_mac
+
+
+whenever user-level information is required.
+
+This is mandatory.
+
+Dashboard JSON Shapes
+
+Keep consistency across dashboard responses.
+
+Charts
+
+Use:
+
+{
+  "title": "",
+  "items": []
+}
+
+
+for:
+
+BarChartResponse
+
+PieChartResponse
+
+LineChartResponse
+
+SSID Failure Distribution
+
+Use:
+
+{
+  "title": "SSID Failures",
+  "items": [
+    {
+      "ssid": "",
+      "failure_count": 0,
+      "failure_rate": 0
+    }
+  ]
+}
+
+
+not a raw top-level list.
+
+Connectivity Outcome Distribution
+
+Continue using:
+
+{
+  "title": "",
+  "items": []
+}
+
+
+structure.
+
+Recovery Chart
+
+Continue using:
+
+{
+  "title": "",
+  "items": []
+}
+
+
+structure.
+
+Classification Percentages
+
+Categories overlap.
+
+Example:
+
+Valid User
+
+AND
+
+UX Missing
+
+
+can both be true.
+
+Therefore:
+
+Percentage should be calculated against:
+
+total devices
+
+
+in:
+
+wifi_user_summary
+
+
+Percentages do NOT need to sum to:
+
+100%
+
+Recovery Logic
+
+Recovered means:
+
+FAIL
+
+followed later by
+
+SUCCESS
+
+for same MAC
+
+
+Order matters.
+
+Recovery rate:
+
+Recovered Devices
+/
+Devices That Had At Least One FAIL
+
+
+Not divided by all devices.
+
+AP Analytics
+
+Use:
+
+wifi_user_summary
+
+
+as source.
+
+Ignore:
+
+ap_hostname = 'NA'
+
+
+records.
+
+Top AP
+
+Rank by:
+
+COUNT(DISTINCT employee_id)
+
+Worst AP
+
+Rank by:
+
+failure_rate
+
+
+using threshold:
+
+(total_success_count + total_failure_count) >= 1000
+
+Return
+
+Top:
+
+10
+
+
+Worst:
+
+10
+
+
+records.
+
+Rare Users
+
+Endpoint:
+
+GET /dashboard/rare-users
+
+
+Definition:
+
+total_appearance_count < 5
+
+
+Use:
+
+wifi_user_summary
+
+
+only.
+
+Do NOT scan events.
+
+Support:
+
+page
+
+page_size
+
+
+Defaults:
+
+page=1
+
+page_size=50
+
+
+Maximum:
+
+500
+
+Inactive Users
+
+Endpoint:
+
+GET /dashboard/inactive-users
+
+
+Return:
+
+employee_id
+
+device_count
+
+last_seen_timestamp
+
+
+Buckets:
+
+7 Days
+
+30 Days
+
+90 Days
+
+
+Support:
+
+page
+page_size
+
+
+same limits as above.
+
+Existing Dashboard Section Endpoints
+
+Keep existing granular endpoints if they already exist:
+
+/dashboard/summary
+
+/dashboard/population
+
+/dashboard/connectivity
+
+/dashboard/ssid
+
+/dashboard/location
+
+/dashboard/activity
+
+/dashboard/data-quality
+
+
+alongside the aggregate:
+
+GET /dashboard
+
+
+They must return identical shapes as the combined endpoint sections.
+
+Location Entity Endpoint
+
+Implement:
+
+GET /investigate/location/{location}
+
+
+Return:
+
+{
+  "location": "",
+  "users": 0,
+  "devices": 0,
+  "success_count": 0,
+  "failure_count": 0,
+  "top_ssids": [],
+  "top_aps": [],
+  "first_seen": "",
+  "last_seen": ""
+}
+
+SSID Entity Endpoint
+
+Implement:
+
+GET /investigate/ssid/{ssid}
+
+
+Return:
+
+{
+  "ssid": "",
+  "users": 0,
+  "devices": 0,
+  "success_count": 0,
+  "failure_count": 0,
+  "locations": [],
+  "aps": [],
+  "first_seen": "",
+  "last_seen": ""
+}
+
+AP Entity Endpoint
+
+Implement:
+
+GET /investigate/ap/{ap_hostname}
+
+
+Return:
+
+{
+  "ap_hostname": "",
+  "users": 0,
+  "devices": 0,
+  "success_count": 0,
+  "failure_count": 0,
+  "failure_rate": 0,
+  "locations": [],
+  "ssids": []
+}
+
+Performance Requirements
+
+Dataset size:
+
+7.4 million events
+
+
+All queries must be production-safe.
+
+Use:
+
+asyncpg pooling
+
+prepared statements
+
+SQL-side filtering
+
+pagination
+
+repository pattern
+
+service layer
+
+structured logging
+
+health checks
+
+cache layer
+
+Cache Requirements
+
+Cache:
+
+/dashboard
+
+/dashboard/*
+
+
+TTL:
+
+300 seconds
+
+
+Cache:
+
+/investigate/options
+
+
+TTL:
+
+300 seconds
+
+Existing Indexes
+
+Indexes already exist for:
+
+status
+
+facility
+
+mnemonic
+
+user_mac
+
+appeared_timestamp
+
+employee_id
+
+location
+
+ap_hostname
+
+observed_ssids
+
+
+Do not generate unnecessary migrations.
+
+Only recommend additional indexes if required after query analysis.
+
+Final Instruction
+
+Proceed with full backend implementation.
+
+Implement:
+
+routers
+
+schemas
+
+repositories
+
+services
+
+sql modules
+
+cache
+
+config
+
+logging
+
+dependency injection
+
+connection management
+
+health checks
+
+requirements.txt
+
+README.md
+
+
+Return a complete production-ready FastAPI backend matching the React dashboard architecture and the database schema above.
+
+Do not stop for additional clarification unless a genuine schema contradiction is discovered.

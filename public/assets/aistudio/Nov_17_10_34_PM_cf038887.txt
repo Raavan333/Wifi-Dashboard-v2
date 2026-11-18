@@ -1,0 +1,775 @@
+Below is the prompt I would actually give a senior backend engineer. It incorporates the dashboard/investigation vision, removes ambiguity, defines business rules, fixes known bugs, adds performance requirements, and specifies exact backend behavior.
+
+MASTER BACKEND IMPLEMENTATION PROMPT
+Enterprise WiFi Analytics & Investigation Platform
+
+You are implementing the production backend for an Enterprise WiFi Analytics & Investigation Platform.
+
+This is not a generic dashboard backend.
+
+The system is a WiFi observability, analytics, and root-cause investigation platform similar to:
+
+Cisco DNA Center Assurance
+Cisco Catalyst Center
+Splunk
+Elastic/Kibana
+Datadog Network Monitoring
+
+The backend must support:
+
+Executive Visibility
++
+Operational Analytics
++
+Root Cause Investigation
++
+User Impact Analysis
+
+Technology Stack
+
+Implement using:
+
+Python 3.11+
+FastAPI
+
+asyncpg
+
+PostgreSQL
+
+Pydantic v2
+
+uvicorn
+
+Repository pattern
+
+Service layer
+
+Router layer
+
+
+Structure:
+
+backend/
+
+app/
+
+api/
+services/
+repositories/
+queries/
+models/
+schemas/
+constants/
+db/
+
+main.py
+config.py
+
+
+Delete and ignore any temporary Node.js backend generated during repository import.
+
+React frontend remains separate.
+
+Database Tables
+
+Primary tables:
+
+wifi_event_history
+
+
+Size:
+
+7M+ rows
+
+
+and
+
+wifi_user_summary
+
+
+Treat:
+
+wifi_event_history
+
+
+as the detailed event store.
+
+Treat:
+
+wifi_user_summary
+
+
+as the latest state / aggregation layer.
+
+Core Business Definitions
+
+These definitions are mandatory.
+
+USER
+
+A user is:
+
+employee_id
+
+
+All user level analytics must use:
+
+COUNT(DISTINCT employee_id)
+
+
+Never use:
+
+COUNT(DISTINCT user_mac)
+
+
+for user metrics.
+
+DEVICE
+
+A device is:
+
+user_mac
+
+
+Device metrics use:
+
+COUNT(DISTINCT user_mac)
+
+
+Example:
+
+Employee 1851960
+
+MAC-A
+MAC-B
+MAC-C
+
+
+dashboard must return:
+
+Total Users = 1
+
+Total Devices = 3
+
+VALID USER
+
+A user is considered VALID when:
+
+employee_id IS NOT NULL
+AND total_success_count >= 1
+
+
+Rationale:
+
+User can be valid even if:
+
+ux_available = false
+
+
+because UX verification is independent from identity validity.
+
+UX MISSING
+
+Defined as:
+
+ux_available = false
+
+
+This is NOT an invalid user.
+
+It is a data enrichment condition.
+
+UNMAPPED USER
+
+Defined as:
+
+employee_id IS NULL
+
+INVALID DEVICE
+
+Defined as:
+
+employee_id IS NULL
+AND total_success_count = 0
+
+
+unless a better business rule is provided later.
+
+RECOVERY DEFINITION
+
+Recovery is NOT:
+
+fail exists
+and
+success exists
+
+
+Recovery MUST mean:
+
+FAIL event
+followed later by
+SUCCESS event
+
+for same user_mac
+
+
+Time ordering matters.
+
+Example:
+
+10:01 FAIL
+
+10:03 FAIL
+
+10:05 SUCCESS
+
+
+Recovered.
+
+Example:
+
+10:01 SUCCESS
+
+10:10 FAIL
+
+
+Not recovered.
+
+DASHBOARD ARCHITECTURE
+
+Endpoint:
+
+GET /dashboard
+
+
+Must return exactly:
+
+{
+  "executive_summary": {},
+  "user_population": {},
+  "connectivity_health": {},
+  "ssid_intelligence": {},
+  "location_overview": {},
+  "user_activity": {},
+  "data_quality": {}
+}
+
+Executive Summary
+
+Metrics:
+
+Total Devices
+
+Total Users
+
+Valid Users
+
+Invalid Devices
+
+UX Unavailable
+
+Connectivity Health
+
+Metrics:
+
+Success Rate
+
+Failure Rate
+
+
+Chart:
+
+Success vs Failure
+
+
+Implement:
+
+Outcome Distribution
+
+
+Current backend leaves this empty.
+
+Do NOT return empty arrays.
+
+Implement:
+
+Recovery Analysis
+
+
+Current backend leaves this empty.
+
+Do NOT return empty arrays.
+
+User Population
+
+Metrics:
+
+Valid Users
+
+Multi Device Users
+
+MACs Last 7 Days
+
+MACs Last 30 Days
+
+MACs Last 90 Days
+
+
+Distribution:
+
+Devices Per User
+
+
+Buckets:
+
+1
+
+2
+
+3
+
+4-5
+
+6+
+
+SSID Intelligence
+
+Implement:
+
+Users Per SSID
+
+
+Using:
+
+COUNT(DISTINCT employee_id)
+
+
+NOT device counts.
+
+Implement:
+
+SSID Combinations
+
+
+Implement:
+
+Failure Distribution by SSID
+
+
+return:
+
+[
+  {
+    "ssid": "",
+    "failure_count": 0,
+    "failure_rate": 0
+  }
+]
+
+
+Current backend returns empty.
+
+Location Analytics
+
+Users by Location:
+
+COUNT(DISTINCT employee_id)
+
+
+Devices by Location:
+
+COUNT(DISTINCT user_mac)
+
+
+Current implementation incorrectly duplicates device counts.
+
+Fix this.
+
+User Activity
+
+Implement:
+
+New Users Trend
+
+
+based on first appearance.
+
+Implement:
+
+Active Users Trend
+
+
+based on daily active employees.
+
+Implement:
+
+Observed Duration Distribution
+
+Data Quality
+
+Metrics:
+
+Valid Users
+
+Unmapped Users
+
+UX Missing
+
+Invalid Devices
+
+
+Classification chart:
+
+Valid
+
+Unmapped
+
+UX Missing
+
+Invalid
+
+
+Calculate REAL percentages.
+
+Do not return:
+
+{
+ "percentage": 0
+}
+
+AP ANALYTICS
+
+Implement new endpoint:
+
+GET /dashboard/ap
+
+
+Return:
+
+{
+  "top_aps": [],
+  "worst_aps": []
+}
+
+
+Top AP ranking:
+
+COUNT(DISTINCT employee_id)
+
+
+Worst AP ranking:
+
+failure_rate
+
+
+with minimum threshold:
+
+1000 events
+
+
+Return:
+
+{
+  "ap_hostname": "",
+  "users": 0,
+  "devices": 0,
+  "success_count": 0,
+  "failure_count": 0,
+  "failure_rate": 0
+}
+
+INACTIVE USERS
+
+New endpoint:
+
+GET /dashboard/inactive-users
+
+
+Return:
+
+{
+  "inactive_7d": [],
+  "inactive_30d": [],
+  "inactive_90d": []
+}
+
+
+Employee level only.
+
+Return:
+
+employee_id
+last_seen_timestamp
+device_count
+
+RARELY SEEN USERS
+
+New endpoint:
+
+GET /dashboard/rare-users
+
+
+Definition:
+
+appearance_count < 5
+
+
+within selected time range.
+
+Return:
+
+employee_id
+device_count
+appearance_count
+last_seen_timestamp
+
+INVESTIGATION MODULE
+Search
+
+Endpoint:
+
+GET /investigate/search
+
+
+Must search:
+
+Employee ID
+
+MAC
+
+SSID
+
+Location
+
+AP Hostname
+
+Facility
+
+Mnemonic
+
+
+Implement proper pagination.
+
+Current logic:
+
+results[0:min(...)]
+
+
+is incorrect.
+
+Use true page offset.
+
+Events
+
+Endpoint:
+
+POST /investigate/events
+
+
+FULLY honor all filters:
+
+employee_ids
+
+user_macs
+
+ssids
+
+statuses
+
+mnemonics
+
+facilities
+
+locations
+
+ap_hostnames
+
+ux_available
+
+valid_users_only
+
+start_timestamp
+
+end_timestamp
+
+
+Current backend ignores several.
+
+Fix all.
+
+Timeline
+
+Endpoint:
+
+POST /investigate/timeline
+
+
+Must honor EVERY InvestigationRequest filter.
+
+Current implementation only honors:
+
+user_macs
+time range
+
+
+Fix.
+
+Return:
+
+{
+  "points":[
+    {
+      "timestamp":"",
+      "success_count":0,
+      "failure_count":0,
+      "appearance_count":0,
+      "exclusion_count":0
+    }
+  ]
+}
+
+Summary
+
+Endpoint:
+
+POST /investigate/summary
+
+
+Current implementation returns zeros.
+
+Replace completely.
+
+Return:
+
+{
+  "total_devices":0,
+  "total_users":0,
+  "valid_users":0,
+  "invalid_users":0,
+  "success_rate":0,
+  "failure_rate":0,
+  "recovery_rate":0
+}
+
+
+Calculated using active filters.
+
+Options
+
+Endpoint:
+
+GET /investigate/options
+
+
+Must return:
+
+statuses
+
+mnemonics
+
+facilities
+
+locations
+
+ap_hostnames
+
+ssids
+
+
+Do NOT full-scan 7M rows every request.
+
+Implement:
+
+cache
+
+
+or
+
+lookup tables
+
+PERFORMANCE REQUIREMENTS
+
+Dataset:
+
+wifi_event_history
+7M+ rows
+
+
+Production-grade performance required.
+
+Implement:
+
+Async connection pooling
+
+Prepared statements
+
+Repository pattern
+
+Query optimization
+
+Pagination
+
+Caching
+
+
+Cache:
+
+/dashboard
+
+/investigate/options
+
+
+TTL:
+
+300 seconds
+
+
+All investigation endpoints must support:
+
+max page size
+
+
+and reject excessive values.
+
+DRILL-THROUGH SUPPORT
+
+Front-end dashboard charts are clickable.
+
+Backend must support investigation filters generated from:
+
+SSID
+
+Location
+
+Success
+
+Failure
+
+Valid User
+
+Unmapped User
+
+UX Missing
+
+Invalid Device
+
+AP Hostname
+
+
+No special endpoint required.
+
+Existing investigation filters must support these drill-throughs.
+
+RESPONSE QUALITY REQUIREMENT
+
+Do not leave placeholders.
+
+Do not return empty arrays where data exists.
+
+Do not leave TODOs.
+
+Do not hardcode 0 values.
+
+Implement all currently wired dashboard widgets and investigation widgets completely.
+
+The final backend should be production-ready, performant against 7M+ rows, fully typed, fully asynchronous, and directly consumable by the React dashboard and investigation UI already implemented.

@@ -1,0 +1,899 @@
+WiFi Analytics & Investigation Platform
+Complete Vision, Current State, Backend Dependencies, Data Model, UX Flows, and Enhancement Roadmap
+1. Product Vision
+
+This is not a dashboard.
+
+The intended product is an Enterprise WiFi Observability Platform similar in concept to:
+
+Cisco Catalyst Center
+Cisco DNA Center Assurance
+Splunk
+Kibana
+Azure Monitor
+Datadog Network Monitoring
+
+The goal is:
+
+Executive Visibility
+            +
+Operational Analytics
+            +
+Root Cause Investigation
+            +
+User Impact Analysis
+
+
+for enterprise wireless connectivity.
+
+2. Core User Personas
+Executive
+
+Wants:
+
+How healthy is WiFi?
+
+How many users are affected?
+
+Which locations are problematic?
+
+Are things getting better or worse?
+
+
+Consumes:
+
+Dashboard
+
+Operations Team
+
+Wants:
+
+What failed?
+
+Where?
+
+Which SSID?
+
+Which AP?
+
+Which users?
+
+Since when?
+
+
+Consumes:
+
+Dashboard
+↓
+Drill Down
+↓
+Investigation
+
+Platform Engineering
+
+Wants:
+
+Trend Analysis
+
+Failure Hotspots
+
+Infrastructure Impact
+
+Data Quality
+
+
+Consumes:
+
+Dashboard
++
+Investigation
+
+3. System Architecture
+Dashboard
+
+Executive View
+──────────────
+
+Overview
+
+Connectivity
+
+Population
+
+SSID
+
+Location
+
+Activity
+
+Data Quality
+
+
+             ↓
+
+Investigation
+
+Search
+
+Timeline
+
+Events
+
+Entity Drawers
+
+Filters
+
+4. Dashboard Architecture
+Executive Summary
+Source
+GET /dashboard
+
+
+Section:
+
+executive_summary
+
+KPI Cards
+Total Devices
+
+Source:
+
+metrics.title = Total Devices
+
+
+Meaning:
+
+Distinct MAC addresses observed
+
+Total Users
+
+Source:
+
+metrics.title = Total Users
+
+
+Meaning:
+
+Distinct Employees
+
+Valid Users
+
+Source:
+
+metrics.title = Valid Users
+
+
+Meaning:
+
+Employee Mapping Exists
+
+Invalid Devices
+
+Source:
+
+metrics.title = Invalid Devices
+
+
+Meaning:
+
+Device failed validation logic
+
+UX Unavailable
+
+Source:
+
+metrics.title = UX Unavailable
+
+
+Meaning:
+
+No UX enrichment available
+
+Connectivity Health
+
+Source:
+
+connectivity_health
+
+KPI Cards
+Success Rate
+
+Computed by backend.
+
+Current:
+
+18.32 %
+
+Failure Rate
+
+Current:
+
+81.68 %
+
+Donut Chart
+Success vs Failure
+
+Chart Type:
+
+Donut Chart
+
+
+Source:
+
+success_failure_chart
+
+
+Values:
+
+Success Count
+Failure Count
+Success %
+Failure %
+
+Missing
+
+Backend returns:
+
+recovery_chart.items = []
+
+
+Expected future chart:
+
+Recovered Users
+
+Recovered Devices
+
+Recovery Rate
+
+Recovered after Retry
+
+
+Backend enhancement required.
+
+User Population
+
+Source:
+
+user_population
+
+KPI Cards
+Valid Users
+
+Source:
+
+6872
+
+Multi Device Users
+
+Meaning:
+
+Users owning >1 MAC
+
+MAC Last 30 Days
+
+Distinct devices seen.
+
+MAC Last 90 Days
+
+Distinct devices seen.
+
+Device Distribution
+
+Chart:
+
+Horizontal Bar Chart
+
+
+Buckets:
+
+1 Device
+
+2 Devices
+
+3 Devices
+
+4-5 Devices
+
+
+Meaning:
+
+How many users possess N devices.
+
+SSID Intelligence
+
+Source:
+
+ssid_intelligence
+
+Users Per SSID
+
+Chart:
+
+Clickable Horizontal Bar
+
+
+Current sample:
+
+!dw$_Tb_o@&
+C0rpW!5!@Of!(3
+Anonymous
+GuestWiFi
+
+
+Meaning:
+
+How many users observed in each SSID.
+
+Drill Through
+
+Click:
+
+!dw$_Tb_o@&
+
+
+↓
+
+{
+  "ssids":["!dw$_Tb_o@&"]
+}
+
+
+↓
+
+Investigation
+
+SSID Combinations
+
+Chart:
+
+Horizontal Bar Chart
+
+
+Examples:
+
+SSID-A + SSID-B
+SSID-A + Anonymous
+SSID-A + SSID-B + Anonymous
+
+
+Meaning:
+
+Users traversing multiple SSIDs.
+
+
+Useful for:
+
+Roaming
+Migration
+Network Segmentation
+
+Missing
+Failure Distribution by SSID
+
+Backend:
+
+failure_distribution.items = []
+
+
+Expected:
+
+SSID
+Failure Count
+Failure Rate
+
+
+Backend enhancement needed.
+
+Location Analytics
+
+Source:
+
+location_overview
+
+Users by Location
+
+Chart:
+
+Clickable Horizontal Bar
+
+
+Example:
+
+Yamuna AssoTech
+
+Noida
+
+GG5
+
+GG7
+
+Devices by Location
+
+Chart:
+
+Horizontal Bar
+
+
+Meaning:
+
+Location Device Density
+
+Drill Through
+
+Click:
+
+Noida5
+
+
+↓
+
+{
+  "locations":[
+    "Noida5"
+  ]
+}
+
+
+↓
+
+Investigation
+
+Missing AP Analytics
+
+Current backend exposes:
+
+ap_hostnames
+
+
+inside:
+
+/investigate/options
+
+
+but dashboard doesn't aggregate.
+
+Expected future:
+
+Top AP
+
+Worst AP
+
+AP Success Rate
+
+AP Failure Rate
+
+AP User Count
+
+AP Utilization
+
+
+Requires backend.
+
+User Activity
+
+Source:
+
+user_activity
+
+Duration Distribution
+
+Chart:
+
+Horizontal Bar
+
+
+Buckets:
+
+<1 Day
+
+1-7 Days
+
+7-30 Days
+
+30-60 Days
+
+60-90 Days
+
+
+Meaning:
+
+Observation Lifetime
+
+Active Users Trend
+
+Chart:
+
+Line Chart
+
+
+Columns:
+
+timestamp
+
+active_user_count
+
+New Users Trend
+
+Chart:
+
+Line Chart
+
+
+Columns:
+
+timestamp
+
+new_user_count
+
+Data Quality
+
+Source:
+
+data_quality
+
+KPI Cards
+Valid Users
+
+Mapped employee.
+
+Unmapped Users
+
+No employee mapping.
+
+UX Missing
+
+No UX enrichment.
+
+Invalid Devices
+
+Failed validation.
+
+Classification Chart
+
+Type:
+
+Donut Chart
+
+
+Segments:
+
+Valid
+
+Unmapped
+
+UX Missing
+
+Invalid
+
+Investigation Architecture
+Search
+
+Source:
+
+/ investigate/search
+
+
+Purpose:
+
+Find
+
+SSID
+
+MAC
+
+Employee
+
+AP
+
+Location
+
+Search Results
+
+Grouping:
+
+SSID
+
+Employee
+
+Location
+
+AP
+
+MAC
+
+
+Clicking result auto-applies filters.
+
+Filter Panel
+
+Current:
+
+Status
+
+SSID
+
+Location
+
+Future Filters
+
+Backend already supports:
+
+Mnemonic
+
+Facility
+
+AP Hostname
+
+UX Available
+
+Valid User Only
+
+
+These should be exposed.
+
+Timeline
+
+Source:
+
+POST /investigate/timeline
+
+
+Returned columns:
+
+timestamp
+
+success_count
+
+failure_count
+
+appearance_count
+
+exclusion_count
+
+Timeline Visualization
+
+Current:
+
+Success Trend
+
+Failure Trend
+
+Appearance Trend
+
+Future Derived Metrics
+
+Can compute frontend:
+
+Success Rate
+
+Failure Rate
+
+Exclusion Rate
+
+
+No backend change needed.
+
+Events Grid
+
+Source:
+
+POST /investigate/events
+
+
+Columns expected:
+
+Timestamp
+
+Employee ID
+
+User MAC
+
+SSID
+
+Status
+
+Facility
+
+Mnemonic
+
+Location
+
+AP Hostname
+
+Message
+
+Employee Drawer
+
+Source:
+
+GET /investigate/user/{id}
+
+
+Displays:
+
+Employee ID
+
+Total Devices
+
+Success Count
+
+Failure Count
+
+First Seen
+
+Last Seen
+
+Related Devices
+
+Displays:
+
+MAC
+
+Location
+
+AP
+
+SSIDs
+
+Device Drawer
+
+Source:
+
+GET /investigate/mac/{mac}
+
+
+Displays:
+
+MAC
+
+Employee
+
+Location
+
+AP
+
+SSIDs
+
+Success
+
+Failure
+
+First Seen
+
+Last Seen
+
+Dashboard → Investigation Workflow
+
+Currently implemented:
+
+SSID Click
+↓
+Investigation
+
+Location Click
+↓
+Investigation
+
+Planned
+Success
+↓
+Investigation
+
+Failure
+↓
+Investigation
+
+Valid Users
+↓
+Investigation
+
+Invalid Users
+↓
+Investigation
+
+UX Missing
+↓
+Investigation
+
+Backend Enhancements Required
+AP Intelligence
+
+New endpoint:
+
+/dashboard/ap
+
+
+Expected:
+
+{
+  "top_aps": [],
+  "worst_aps": [],
+  "ap_failures": [],
+  "ap_success_rate": []
+}
+
+Recovery Insights
+
+Current:
+
+[]
+
+
+Need:
+
+{
+  "recovered": 0,
+  "not_recovered": 0,
+  "recovery_rate": 0
+}
+
+Inactive Users
+
+New endpoint:
+
+/dashboard/inactive-users
+
+
+Expected:
+
+{
+  "inactive_7d": [],
+  "inactive_30d": [],
+  "inactive_90d": []
+}
+
+Rarely Seen Users
+
+Derived using:
+
+first_seen
+
+last_seen
+
+appearance_count
+
+
+Backend should aggregate.
+
+Failure by SSID
+
+Current:
+
+[]
+
+
+Need:
+
+[
+  {
+    "ssid":"X",
+    "failures":1234
+  }
+]
+
+Final Vision
+
+The finished product should behave like:
+
+Executive Dashboard
+       ↓
+Find Problem
+       ↓
+Click Chart
+       ↓
+Investigation Opens
+       ↓
+Timeline
+       ↓
+Events
+       ↓
+Employee
+       ↓
+Device
+       ↓
+SSID/AP/Location Root Cause
+
+
+here user means it's employee id as one employee id can be linked to multiple mac addresses as he maybe owing multiple devices 
+
+In short, your vision is an enterprise wireless observability and investigation platform, not merely a dashboard. The dashboard is the entry point, and the Investigation workspace is the actual product where analysis and troubleshooting happen.

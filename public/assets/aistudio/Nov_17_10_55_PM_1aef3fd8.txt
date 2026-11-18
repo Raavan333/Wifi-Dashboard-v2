@@ -1,0 +1,897 @@
+Below is the prompt I would actually use if my goal was to get a production-ready FastAPI backend, not a prototype. It is written as an engineering specification rather than a feature request.
+
+MASTER IMPLEMENTATION PROMPT
+Enterprise WiFi Observability, Analytics & Investigation Platform Backend
+
+You are a senior Staff Software Engineer and Principal Backend Architect.
+
+Your task is to rebuild and upgrade the backend of an Enterprise WiFi Analytics & Investigation Platform.
+
+This is a production-grade system backed by PostgreSQL containing:
+
+Plain Text
+wifi_event_history
+7,404,600+ records
+ 
+wifi_user_summary
+15,869 records
+
+The backend will serve an already implemented React frontend.
+
+Do not generate placeholders.
+
+Do not hardcode values.
+
+Do not leave TODOs.
+
+Do not leave empty arrays when real data can be computed.
+
+Do not assume anything beyond what is explicitly defined below.
+
+The final result must be deployable and maintainable by an enterprise engineering team.
+
+Technology Requirements
+
+Implement using:
+
+Plain Text
+Python 3.11+
+ 
+FastAPI
+ 
+Pydantic v2
+ 
+asyncpg
+ 
+PostgreSQL
+ 
+uvicorn
+ 
+Repository Layer
+ 
+Service Layer
+ 
+Router Layer
+ 
+Dependency Injection
+ 
+Connection Pooling
+
+Folder structure:
+
+Plain Text
+backend/
+ 
+app/
+ 
+api/
+services/
+repositories/
+queries/
+schemas/
+models/
+db/
+constants/
+utils/
+cache/
+ 
+main.py
+config.py
+
+Delete and completely ignore the temporary Node.js/Express implementation generated during repository import.
+
+Frontend remains React and is not part of this implementation.
+
+API ROUTING
+
+Mount directly at root.
+
+Do NOT use:
+
+Plain Text
+/api
+/api/v1
+
+Use:
+
+Plain Text
+/health
+ 
+/dashboard
+/dashboard/ap
+/dashboard/inactive-users
+/dashboard/rare-users
+ 
+/investigate/search
+/investigate/options
+/investigate/events
+/investigate/timeline
+/investigate/summary
+ 
+/investigate/user/{employee_id}
+/investigate/mac/{user_mac}
+/investigate/location/{location}
+/investigate/ssid/{ssid}
+/investigate/ap/{ap_hostname}
+DATABASE TABLES
+wifi_event_history
+SQL
+id BIGINT
+ 
+user_mac VARCHAR
+ 
+facility VARCHAR
+ 
+mnemonic VARCHAR
+ 
+status VARCHAR
+ 
+ssid TEXT
+ 
+appeared_timestamp TIMESTAMPTZ
+ 
+elasticsearch_timestamp TIMESTAMPTZ
+ 
+ingestion_delay_seconds DOUBLE PRECISION
+ 
+raw_message TEXT
+ 
+metadata JSONB
+ 
+created_at TIMESTAMPTZ
+
+Row count:
+
+Plain Text
+7,404,600+
+
+Status values are:
+
+Plain Text
+FAIL
+SUCCESS
+UNKNOWN
+
+No other status values should be assumed.
+
+wifi_user_summary
+SQL
+user_mac VARCHAR PRIMARY KEY
+ 
+first_seen_timestamp TIMESTAMPTZ
+ 
+last_seen_timestamp TIMESTAMPTZ
+ 
+total_appearance_count INTEGER
+ 
+total_success_count INTEGER
+ 
+total_failure_count INTEGER
+ 
+total_exclusion_count INTEGER
+ 
+last_event_status VARCHAR
+ 
+ux_available BOOLEAN
+ 
+ux_timestamp TIMESTAMPTZ
+ 
+ux_last_queried_timestamp TIMESTAMPTZ
+ 
+employee_id BIGINT
+ 
+asset_id VARCHAR
+ 
+device_ip VARCHAR
+ 
+location TEXT
+ 
+ap_mac VARCHAR
+ 
+ap_hostname VARCHAR
+ 
+observed_ssids TEXT[]
+ 
+observed_duration INTERVAL
+ 
+created_at TIMESTAMPTZ
+ 
+updated_at TIMESTAMPTZ
+
+Row count:
+
+Plain Text
+15,869
+CRITICAL DATA MODEL DEFINITIONS
+
+These definitions are mandatory.
+
+USER
+
+A user means:
+
+Plain Text
+employee_id
+
+All user-level metrics use:
+
+SQL
+COUNT(DISTINCT employee_id)
+
+Never count MAC addresses for user metrics.
+
+DEVICE
+
+A device means:
+
+Plain Text
+user_mac
+ 
+
+All device metrics use:
+
+SQL
+COUNT(DISTINCT user_mac)
+VALID USER
+
+A valid user is:
+
+SQL
+employee_id IS NOT NULL
+AND total_success_count >= 1
+
+A valid user may still have:
+
+SQL
+ux_available = false
+
+This is intentional.
+
+UX verification does NOT determine validity.
+
+UX MISSING
+
+Defined as:
+
+SQL
+ux_available = false
+ 
+
+This is a data-enrichment condition.
+
+Not a user validity condition.
+
+UNMAPPED USER
+
+Defined as:
+
+SQL
+employee_id IS NULL
+INVALID DEVICE
+
+Defined as:
+
+SQL
+employee_id IS NULL
+AND total_success_count = 0
+EVENT ENRICHMENT REQUIREMENT
+
+wifi_event_history DOES NOT contain:
+
+Plain Text
+employee_id
+location
+ap_hostname
+ux_available
+observed_ssids
+
+Therefore ALL investigation endpoints must enrich events by joining:
+
+SQL
+wifi_event_history e
+JOIN wifi_user_summary s
+ON e.user_mac = s.user_mac
+
+Whenever user-level fields are required.
+
+Do not attempt to read those fields directly from wifi_event_history.
+
+RECOVERY DEFINITION
+
+Recovery means:
+
+Plain Text
+FAIL event
+ 
+followed later by
+ 
+SUCCESS event
+ 
+for the same MAC address.
+
+Order matters.
+
+Example:
+
+Plain Text
+FAIL
+FAIL
+SUCCESS
+
+Recovered.
+
+Example:
+
+Plain Text
+SUCCESS
+FAIL
+
+Not recovered.
+
+Recovery rate:
+
+SQL
+Recovered Devices
+/
+Devices That Experienced Failure
+DASHBOARD CONTRACT
+
+Endpoint:
+
+HTTP
+GET /dashboard
+
+Must return:
+
+JSON
+{
+"executive_summary": {},
+"user_population": {},
+"connectivity_health": {},
+"ssid_intelligence": {},
+"location_overview": {},
+"user_activity": {},
+"data_quality": {}
+}
+EXECUTIVE SUMMARY
+
+KPIs:
+
+Plain Text
+Total Devices
+ 
+Total Users
+ 
+Valid Users
+ 
+Invalid Devices
+ 
+UX Missing
+ 
+CONNECTIVITY HEALTH
+
+KPIs:
+
+Plain Text
+Success Rate
+ 
+Failure Rate
+
+Charts:
+
+Plain Text
+Success vs Failure
+ 
+Outcome Distribution
+ 
+Recovery Analysis
+
+Do not leave recovery or outcome arrays empty.
+
+USER POPULATION
+
+Metrics:
+
+Plain Text
+Valid Users
+ 
+Multi Device Users
+ 
+MACs Last 7 Days
+ 
+MACs Last 30 Days
+ 
+MACs Last 90 Days
+
+Distribution:
+
+Plain Text
+Devices Per User
+
+Buckets:
+
+Plain Text
+1
+ 
+2
+ 
+3
+ 
+4-5
+ 
+6+
+SSID INTELLIGENCE
+
+Use:
+
+SQL
+COUNT(DISTINCT employee_id)
+
+for:
+
+Plain Text
+Users Per SSID
+
+not device counts.
+
+Implement:
+
+Plain Text
+Users Per SSID
+ 
+SSID Combinations
+ 
+Failure Distribution by SSID
+
+Use:
+
+SQL
+observed_ssids
+
+from wifi_user_summary wherever possible.
+
+Do not scan 7M records when summary data already exists.
+
+Failure Distribution must provide:
+
+JSON
+{
+"ssid":"",
+"failure_count":0,
+"failure_rate":0
+}
+LOCATION OVERVIEW
+
+Users by Location:
+
+SQL
+COUNT(DISTINCT employee_id)
+
+Devices by Location:
+
+SQL
+COUNT(DISTINCT user_mac)
+ 
+
+These are different metrics.
+
+Do not reuse one for the other.
+
+USER ACTIVITY
+
+New Users:
+
+SQL
+DATE(first_seen_timestamp)
+
+from summary table.
+
+Active Users:
+
+SQL
+COUNT(DISTINCT employee_id)
+
+per day.
+
+Duration Distribution:
+
+SQL
+observed_duration
+
+from summary.
+
+DATA QUALITY
+
+Metrics:
+
+Plain Text
+Valid Users
+ 
+Unmapped Users
+ 
+UX Missing
+ 
+Invalid Devices
+
+Classification chart percentages must be real.
+
+Because categories overlap, percentages do NOT need to sum to 100%.
+
+All percentages should be calculated relative to:
+
+Plain Text
+total devices
+
+in wifi_user_summary.
+
+AP ANALYTICS
+
+Endpoint:
+
+HTTP
+GET /dashboard/ap
+
+Source:
+
+SQL
+wifi_user_summary
+ 
+
+Ignore all:
+
+Plain Text
+ap_hostname = 'NA'
+
+records.
+
+Top AP:
+
+SQL
+COUNT(DISTINCT employee_id)
+
+Worst AP:
+
+SQL
+failure_rate
+
+minimum threshold:
+
+SQL
+1000 events
+
+Return:
+
+JSON
+{
+"ap_hostname":"",
+"users":0,
+"devices":0,
+"success_count":0,
+"failure_count":0,
+"failure_rate":0
+}
+INACTIVE USERS
+
+Endpoint:
+
+HTTP
+GET /dashboard/inactive-users
+
+Employee level only.
+
+Return:
+
+Plain Text
+employee_id
+ 
+device_count
+ 
+last_seen_timestamp
+
+Buckets:
+
+Plain Text
+7 Days
+ 
+30 Days
+ 
+90 Days
+RARE USERS
+
+Endpoint:
+
+HTTP
+GET /dashboard/rare-users
+
+Definition:
+
+SQL
+total_appearance_count < 5
+
+Use wifi_user_summary only.
+
+Return:
+
+Plain Text
+employee_id
+ 
+device_count
+ 
+appearance_count
+ 
+last_seen_timestamp
+INVESTIGATION
+SEARCH
+
+Endpoint:
+
+HTTP
+GET /investigate/search
+
+Must search:
+
+Plain Text
+employee_id
+ 
+user_mac
+ 
+ssid
+ 
+location
+ 
+ap_hostname
+ 
+facility
+ 
+mnemonic
+
+Implement proper pagination.
+
+Do not slice in memory.
+
+EVENTS
+
+Endpoint:
+
+HTTP
+POST /investigate/events
+
+Must support:
+
+Plain Text
+employee_ids
+ 
+user_macs
+ 
+ssids
+ 
+statuses
+ 
+mnemonics
+ 
+facilities
+ 
+locations
+ 
+ap_hostnames
+ 
+ux_available
+ 
+valid_users_only
+ 
+start_timestamp
+ 
+end_timestamp
+
+All filters are mandatory.
+
+No filter may be ignored.
+
+Return raw_message as message.
+
+TIMELINE
+
+Endpoint:
+
+HTTP
+POST /investigate/timeline
+
+Apply every investigation filter.
+
+Return:
+
+JSON
+{
+"timestamp":"",
+"success_count":0,
+"failure_count":0,
+"appearance_count":0,
+"unknown_count":0
+}
+SUMMARY
+
+Endpoint:
+
+HTTP
+POST /investigate/summary
+
+Apply all filters.
+
+Return:
+
+JSON
+{
+"total_devices":0,
+"total_users":0,
+"valid_users":0,
+"invalid_users":0,
+"success_rate":0,
+"failure_rate":0,
+"recovery_rate":0
+}
+
+No hardcoded values.
+
+No placeholders.
+
+ENTITY DETAILS
+
+Implement:
+
+HTTP
+GET /investigate/user/{employee_id}
+ 
+GET /investigate/mac/{user_mac}
+ 
+GET /investigate/location/{location}
+ 
+GET /investigate/ssid/{ssid}
+ 
+GET /investigate/ap/{ap_hostname}
+
+These endpoints power future drill-down drawers.
+
+OPTIONS
+
+Endpoint:
+
+HTTP
+GET /investigate/options
+
+Must return:
+
+Plain Text
+statuses
+ 
+mnemonics
+ 
+facilities
+ 
+locations
+ 
+ap_hostnames
+ 
+ssids
+
+Do not scan 7M rows every request.
+
+Use caching.
+
+PERFORMANCE REQUIREMENTS
+
+Mandatory.
+
+Database:
+
+Plain Text
+7.4M events
+
+Backend must be designed accordingly.
+
+Use:
+
+Plain Text
+asyncpg pooling
+ 
+prepared statements
+ 
+pagination
+ 
+query optimization
+ 
+service layer
+ 
+repository layer
+ 
+server-side caching
+
+Cache:
+
+Plain Text
+/dashboard
+ 
+/investigate/options
+
+TTL:
+
+Plain Text
+300 seconds
+
+Max page size:
+
+Plain Text
+500
+
+Reject larger requests.
+
+Do not load large datasets into memory.
+
+Always filter in SQL.
+
+DRILL THROUGH REQUIREMENT
+
+Frontend supports dashboard drill-through.
+
+Investigation filters must support:
+
+Plain Text
+SSID
+ 
+Location
+ 
+Success
+ 
+Failure
+ 
+Valid User
+ 
+Unmapped User
+ 
+UX Missing
+ 
+Invalid Device
+ 
+AP Hostname
+
+No additional endpoint should be required.
+
+Everything must work through InvestigationRequest filters.
+
+DELIVERABLE EXPECTATION
+
+Generate:
+
+Plain Text
+All FastAPI routers
+ 
+All Pydantic schemas
+ 
+All repositories
+ 
+All SQL query modules
+ 
+All services
+ 
+main.py
+ 
+config.py
+ 
+database layer
+ 
+connection pool management
+ 
+dependency injection
+ 
+cache layer
+ 
+error handling
+ 
+logging
+ 
+health endpoint
+ 
+requirements.txt
+ 
+README.md
+
+The result should be a production-grade backend that can be deployed immediately against the provided PostgreSQL schema and fully support the React dashboard and investigation platform.

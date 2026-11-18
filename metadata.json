@@ -1,0 +1,5 @@
+{
+  "name": "Wifi-dashboard",
+  "description": "Enterprise WiFi Observability, Analytics & Investigation Platform Backend",
+  "requestFramePermissions": []
+}
