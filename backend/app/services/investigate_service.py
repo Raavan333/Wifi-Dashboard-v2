@@ -29,15 +29,13 @@ from app.schemas.investigate import (
     TimelineResponse,
     UniversalEntityResponse,
 )
+from app.utils.normalization import (
+    normalize_ap_identifier,
+    normalize_ap_list,
+    normalize_entity_display,
+    normalize_entity_identifier,
+)
 from app.utils.pagination import build_pagination_meta
-
-
-def _normalize_entity_value(value: str) -> str:
-    return value.strip()
-
-
-def _is_blank_or_na(value: str) -> bool:
-    return not value or value.upper() == "NA"
 
 
 def _build_entity_metrics(
@@ -84,21 +82,33 @@ class InvestigateService:
         if filters.group_by and filters.group_by != "event":
             rows = await self._repo.search_grouped(filters)
             total_records = int(rows[0]["total_records"]) if rows else 0
-            grouped_records = [
-                GroupedInvestigationItem(
-                    group_key=str(row["group_key"]),
-                    users=int(row["users"] or 0),
-                    devices=int(row["devices"] or 0),
-                    total_events=int(row["total_events"] or 0),
-                    success_count=int(row["success_count"] or 0),
-                    failure_count=int(row["failure_count"] or 0),
-                    unknown_count=int(row["unknown_count"] or 0),
-                    failure_rate=float(row["failure_rate"] or 0.0),
-                    first_seen=row["first_seen"],
-                    last_seen=row["last_seen"],
+            grouped_records: list[GroupedInvestigationItem] = []
+            for row in rows:
+                raw_key = row["group_key"]
+                if filters.group_by in ("ap", "ap_mac", "location"):
+                    clean_key = normalize_ap_identifier(
+                        str(raw_key) if raw_key is not None else None
+                    )
+                    if clean_key is None:
+                        continue
+                    group_key = clean_key
+                else:
+                    group_key = str(raw_key)
+
+                grouped_records.append(
+                    GroupedInvestigationItem(
+                        group_key=group_key,
+                        users=int(row["users"] or 0),
+                        devices=int(row["devices"] or 0),
+                        total_events=int(row["total_events"] or 0),
+                        success_count=int(row["success_count"] or 0),
+                        failure_count=int(row["failure_count"] or 0),
+                        unknown_count=int(row["unknown_count"] or 0),
+                        failure_rate=float(row["failure_rate"] or 0.0),
+                        first_seen=row["first_seen"],
+                        last_seen=row["last_seen"],
+                    )
                 )
-                for row in rows
-            ]
             return GroupedInvestigationResponse(
                 group_by=filters.group_by,
                 records=grouped_records,
@@ -127,9 +137,9 @@ class InvestigateService:
                 ssid=row["ssid"],
                 appeared_timestamp=row["appeared_timestamp"],
                 elasticsearch_timestamp=row["elasticsearch_timestamp"],
-                ap_hostname=row["ap_hostname"],
-                ap_mac=row["ap_mac"],
-                location=row["location"],
+                ap_hostname=normalize_ap_identifier(row["ap_hostname"]),
+                ap_mac=normalize_ap_identifier(row["ap_mac"]),
+                location=normalize_ap_identifier(row["location"]),
                 message=row["message"],
                 metadata=row["metadata"],
                 attempt_count=row["attempt_count"],
@@ -196,15 +206,25 @@ class InvestigateService:
             self._repo.get_employee_ssids(employee_id),
         )
 
-        locations = (
-            list(relations_row["locations"] or []) if relations_row else []
+        locations = normalize_ap_list(
+            relations_row["locations"] if relations_row else []
         )
-        aps = list(relations_row["aps"] or []) if relations_row else []
+        aps = normalize_ap_list(relations_row["aps"] if relations_row else [])
         ssids = [row["ssid"] for row in ssid_rows if row["ssid"]]
+
+        sanitized_devices = []
+        for device in devices:
+            item = dict(device)
+            item["location"] = normalize_ap_identifier(item.get("location"))
+            item["ap_mac"] = normalize_ap_identifier(item.get("ap_mac"))
+            item["ap_hostname"] = normalize_ap_identifier(
+                item.get("ap_hostname")
+            )
+            sanitized_devices.append(item)
 
         return EmployeeOverviewResponse(
             profile=_to_employee_profile(profile_row),
-            devices=[dict(device) for device in devices],
+            devices=sanitized_devices,
             locations=locations,
             ssids=ssids,
             aps=aps,
@@ -213,27 +233,22 @@ class InvestigateService:
     async def get_mac_details(
         self, user_mac: str
     ) -> Optional[DeviceDetail]:
-        normalized = _normalize_entity_value(user_mac)
-        if not normalized:
+        lookup_key = normalize_entity_identifier(user_mac)
+        if not lookup_key:
             return None
 
-        row = await self._repo.get_mac_details(normalized)
+        row = await self._repo.get_mac_details(lookup_key)
         if not row:
             return None
 
         employee_id = row["employee_id"]
         user_profile: Optional[EmployeeProfile] = None
         ssids = [s for s in (row["observed_ssids"] or []) if s]
-        locations = (
-            [row["location"]]
-            if row["location"] and row["location"].upper() != "NA"
-            else []
-        )
-        aps = (
-            [row["ap_hostname"]]
-            if row["ap_hostname"] and row["ap_hostname"].upper() != "NA"
-            else []
-        )
+        clean_location = normalize_ap_identifier(row["location"])
+        clean_ap_mac = normalize_ap_identifier(row["ap_mac"])
+        clean_ap_hostname = normalize_ap_identifier(row["ap_hostname"])
+        locations = [clean_location] if clean_location else []
+        aps = [clean_ap_hostname] if clean_ap_hostname else []
 
         if employee_id is not None:
             profile_row, relations_row, ssid_rows = await asyncio.gather(
@@ -243,8 +258,12 @@ class InvestigateService:
             )
             user_profile = _to_employee_profile(profile_row)
             if relations_row:
-                locations = list(relations_row["locations"] or locations)
-                aps = list(relations_row["aps"] or aps)
+                rel_locations = normalize_ap_list(relations_row["locations"])
+                rel_aps = normalize_ap_list(relations_row["aps"])
+                if rel_locations:
+                    locations = rel_locations
+                if rel_aps:
+                    aps = rel_aps
             if ssid_rows:
                 ssids = [r["ssid"] for r in ssid_rows if r["ssid"]]
 
@@ -264,9 +283,9 @@ class InvestigateService:
             ux_last_queried_timestamp=row["ux_last_queried_timestamp"],
             asset_id=row["asset_id"],
             device_ip=row["device_ip"],
-            location=row["location"],
-            ap_mac=row["ap_mac"],
-            ap_hostname=row["ap_hostname"],
+            location=clean_location,
+            ap_mac=clean_ap_mac,
+            ap_hostname=clean_ap_hostname,
             observed_ssids=list(row["observed_ssids"] or []),
             user=user_profile,
             ssids=ssids,
@@ -277,10 +296,11 @@ class InvestigateService:
     async def get_location_details(
         self, location: str
     ) -> LocationEntityResponse:
-        normalized = _normalize_entity_value(location)
-        if _is_blank_or_na(normalized):
+        display_value = normalize_entity_display(location)
+        lookup_key = normalize_entity_identifier(location)
+        if not lookup_key or lookup_key == "na":
             return LocationEntityResponse(
-                location=normalized,
+                location=display_value,
                 users=0,
                 devices=0,
                 success_count=0,
@@ -288,14 +308,14 @@ class InvestigateService:
             )
 
         summary_row, top_ssids, top_aps = await asyncio.gather(
-            self._repo.get_location_summary(normalized),
-            self._repo.get_location_top_ssids(normalized),
-            self._repo.get_location_top_aps(normalized),
+            self._repo.get_location_summary(lookup_key),
+            self._repo.get_location_top_ssids(lookup_key),
+            self._repo.get_location_top_aps(lookup_key),
         )
         canonical_location = (
-            summary_row["location"]
+            normalize_entity_display(summary_row["location"])
             if summary_row and summary_row["location"]
-            else normalized
+            else display_value
         )
         users = int(summary_row["users"] or 0) if summary_row else 0
         devices = int(summary_row["devices"] or 0) if summary_row else 0
@@ -309,7 +329,14 @@ class InvestigateService:
             float(summary_row["failure_rate"] or 0.0) if summary_row else 0.0
         )
         ssid_list = [dict(row) for row in top_ssids]
-        ap_list = [dict(row) for row in top_aps]
+        ap_list = []
+        for row in top_aps:
+            ap_name = normalize_ap_identifier(row["ap_hostname"])
+            if ap_name is None:
+                continue
+            item = dict(row)
+            item["ap_hostname"] = ap_name
+            ap_list.append(item)
 
         return LocationEntityResponse(
             location=canonical_location,
@@ -333,10 +360,11 @@ class InvestigateService:
         )
 
     async def get_ssid_details(self, ssid: str) -> SSIDEntityResponse:
-        normalized = _normalize_entity_value(ssid)
-        if not normalized:
+        display_value = normalize_entity_display(ssid)
+        lookup_key = normalize_entity_identifier(ssid)
+        if not lookup_key:
             return SSIDEntityResponse(
-                ssid=normalized,
+                ssid=display_value,
                 users=0,
                 devices=0,
                 success_count=0,
@@ -344,14 +372,14 @@ class InvestigateService:
             )
 
         summary_row, locations, aps = await asyncio.gather(
-            self._repo.get_ssid_summary(normalized),
-            self._repo.get_ssid_locations(normalized),
-            self._repo.get_ssid_aps(normalized),
+            self._repo.get_ssid_summary(lookup_key),
+            self._repo.get_ssid_locations(lookup_key),
+            self._repo.get_ssid_aps(lookup_key),
         )
         canonical_ssid = (
-            summary_row["ssid"]
+            normalize_entity_display(summary_row["ssid"])
             if summary_row and summary_row["ssid"]
-            else normalized
+            else display_value
         )
         users = int(summary_row["users"] or 0) if summary_row else 0
         devices = int(summary_row["devices"] or 0) if summary_row else 0
@@ -365,6 +393,24 @@ class InvestigateService:
             float(summary_row["failure_rate"] or 0.0) if summary_row else 0.0
         )
 
+        location_list = []
+        for row in locations:
+            loc_name = normalize_ap_identifier(row["location"])
+            if loc_name is None:
+                continue
+            item = dict(row)
+            item["location"] = loc_name
+            location_list.append(item)
+
+        ap_list = []
+        for row in aps:
+            ap_name = normalize_ap_identifier(row["ap_hostname"])
+            if ap_name is None:
+                continue
+            item = dict(row)
+            item["ap_hostname"] = ap_name
+            ap_list.append(item)
+
         return SSIDEntityResponse(
             ssid=canonical_ssid,
             users=users,
@@ -372,8 +418,8 @@ class InvestigateService:
             success_count=success_count,
             failure_count=failure_count,
             failure_rate=failure_rate,
-            locations=[dict(row) for row in locations],
-            aps=[dict(row) for row in aps],
+            locations=location_list,
+            aps=ap_list,
             first_seen=summary_row["first_seen"] if summary_row else None,
             last_seen=summary_row["last_seen"] if summary_row else None,
             metrics=_build_entity_metrics(
@@ -385,10 +431,10 @@ class InvestigateService:
         )
 
     async def get_ap_details(self, ap_hostname: str) -> APEntityResponse:
-        normalized = _normalize_entity_value(ap_hostname)
-        if _is_blank_or_na(normalized):
+        cleaned_ap = normalize_ap_identifier(ap_hostname)
+        if cleaned_ap is None:
             return APEntityResponse(
-                ap_hostname=normalized,
+                ap_hostname="",
                 users=0,
                 devices=0,
                 success_count=0,
@@ -396,15 +442,16 @@ class InvestigateService:
                 failure_rate=0.0,
             )
 
+        lookup_key = normalize_entity_identifier(cleaned_ap)
         summary_row, ssids = await asyncio.gather(
-            self._repo.get_ap_summary(normalized),
-            self._repo.get_ap_ssids(normalized),
+            self._repo.get_ap_summary(lookup_key),
+            self._repo.get_ap_ssids(lookup_key),
         )
         canonical_ap = (
-            summary_row["ap_hostname"]
+            normalize_ap_identifier(summary_row["ap_hostname"])
             if summary_row and summary_row["ap_hostname"]
-            else normalized
-        )
+            else None
+        ) or cleaned_ap
         users = int(summary_row["users"] or 0) if summary_row else 0
         devices = int(summary_row["devices"] or 0) if summary_row else 0
         success_count = (
@@ -419,13 +466,15 @@ class InvestigateService:
 
         return APEntityResponse(
             ap_hostname=canonical_ap,
-            ap_macs=list(summary_row["ap_macs"] or []) if summary_row else [],
+            ap_macs=normalize_ap_list(summary_row["ap_macs"])
+            if summary_row
+            else [],
             users=users,
             devices=devices,
             success_count=success_count,
             failure_count=failure_count,
             failure_rate=failure_rate,
-            locations=list(summary_row["locations"] or [])
+            locations=normalize_ap_list(summary_row["locations"])
             if summary_row
             else [],
             ssids=[row["ssid"] for row in ssids if row["ssid"]],
@@ -440,10 +489,10 @@ class InvestigateService:
         )
 
     async def get_ap_mac_details(self, ap_mac: str) -> APMacEntityResponse:
-        normalized = _normalize_entity_value(ap_mac)
-        if _is_blank_or_na(normalized):
+        cleaned_mac = normalize_ap_identifier(ap_mac)
+        if cleaned_mac is None:
             return APMacEntityResponse(
-                ap_mac=normalized,
+                ap_mac="",
                 users=0,
                 devices=0,
                 success_count=0,
@@ -451,15 +500,16 @@ class InvestigateService:
                 failure_rate=0.0,
             )
 
+        lookup_key = normalize_entity_identifier(cleaned_mac)
         summary_row, ssids = await asyncio.gather(
-            self._repo.get_ap_mac_summary(normalized),
-            self._repo.get_ap_mac_ssids(normalized),
+            self._repo.get_ap_mac_summary(lookup_key),
+            self._repo.get_ap_mac_ssids(lookup_key),
         )
         canonical_mac = (
-            summary_row["ap_mac"]
+            normalize_ap_identifier(summary_row["ap_mac"])
             if summary_row and summary_row["ap_mac"]
-            else normalized
-        )
+            else None
+        ) or cleaned_mac
         users = int(summary_row["users"] or 0) if summary_row else 0
         devices = int(summary_row["devices"] or 0) if summary_row else 0
         success_count = (
@@ -474,10 +524,10 @@ class InvestigateService:
 
         return APMacEntityResponse(
             ap_mac=canonical_mac,
-            ap_hostnames=list(summary_row["ap_hostnames"] or [])
+            ap_hostnames=normalize_ap_list(summary_row["ap_hostnames"])
             if summary_row
             else [],
-            locations=list(summary_row["locations"] or [])
+            locations=normalize_ap_list(summary_row["locations"])
             if summary_row
             else [],
             ssids=[row["ssid"] for row in ssids if row["ssid"]],
@@ -499,23 +549,24 @@ class InvestigateService:
     async def resolve_universal_entity(
         self, value: str
     ) -> UniversalEntityResponse:
-        normalized = _normalize_entity_value(value)
-        if _is_blank_or_na(normalized):
+        display_value = normalize_entity_display(value)
+        lookup_key = normalize_entity_identifier(value)
+        if not lookup_key or lookup_key == "na":
             return UniversalEntityResponse(
-                query=value,
+                query=display_value,
                 resolved=False,
                 entity_type=None,
                 canonical_value=None,
                 data=None,
             )
 
-        employee_id = int(normalized) if normalized.isdigit() else None
+        employee_id = int(lookup_key) if lookup_key.isdigit() else None
         match = await self._repo.resolve_universal_entity(
-            normalized, employee_id
+            lookup_key, employee_id
         )
         if not match:
             return UniversalEntityResponse(
-                query=value,
+                query=display_value,
                 resolved=False,
                 entity_type=None,
                 canonical_value=None,
@@ -523,23 +574,33 @@ class InvestigateService:
             )
 
         entity_type = match["entity_type"]
-        canonical_value = match["canonical_value"]
+        canonical_value = normalize_entity_display(match["canonical_value"])
 
         if entity_type == "Employee":
             data = await self.get_employee_overview(int(canonical_value))
         elif entity_type == "Device":
             data = await self.get_mac_details(canonical_value)
+            if data:
+                canonical_value = data.user_mac
         elif entity_type == "AP MAC":
             data = await self.get_ap_mac_details(canonical_value)
+            if data:
+                canonical_value = data.ap_mac
         elif entity_type == "AP":
             data = await self.get_ap_details(canonical_value)
+            if data:
+                canonical_value = data.ap_hostname
         elif entity_type == "Location":
             data = await self.get_location_details(canonical_value)
+            if data:
+                canonical_value = data.location
         else:
             data = await self.get_ssid_details(canonical_value)
+            if data:
+                canonical_value = data.ssid
 
         return UniversalEntityResponse(
-            query=value,
+            query=display_value,
             resolved=True,
             entity_type=entity_type,
             canonical_value=canonical_value,
@@ -570,15 +631,15 @@ class InvestigateService:
                 mnemonics=[
                     row["mnemonic"] for row in mnemonics if row["mnemonic"]
                 ],
-                locations=[
-                    row["location"] for row in locations if row["location"]
-                ],
+                locations=normalize_ap_list(
+                    row["location"] for row in locations
+                ),
                 facilities=[
                     row["facility"] for row in facilities if row["facility"]
                 ],
-                ap_hostnames=[
-                    row["ap_hostname"] for row in aps if row["ap_hostname"]
-                ],
+                ap_hostnames=normalize_ap_list(
+                    row["ap_hostname"] for row in aps
+                ),
             )
 
         return await get_or_set_cached(INVESTIGATE_OPTIONS, _load)
@@ -589,9 +650,10 @@ class InvestigateService:
         page: int = 1,
         page_size: int = 20,
     ) -> GlobalSearchResponse:
+        normalized_query = normalize_entity_display(query) or query.strip()
         options = await self.get_filter_options()
         rows = await self._repo.global_search(
-            query=query,
+            query=normalized_query,
             facilities=options.facilities,
             mnemonics=options.mnemonics,
             page=page,
@@ -599,19 +661,28 @@ class InvestigateService:
         )
 
         total_records = int(rows[0]["total_records"]) if rows else 0
-        results = [
-            SearchResult(
-                entity_type=row["entity_type"],
-                display_value=row["display_value"],
-                matched_field=row["matched_field"],
-                location=row["location"],
-                users=row["users"],
-                devices=row["devices"],
-                failure_rate=row["failure_rate"],
-                related_to=row["related_to"],
+        results: list[SearchResult] = []
+        for row in rows:
+            entity_type = row["entity_type"]
+            display_value = row["display_value"]
+            if entity_type in ("AP", "AP MAC", "Location"):
+                cleaned_display = normalize_ap_identifier(display_value)
+                if cleaned_display is None:
+                    continue
+                display_value = cleaned_display
+
+            results.append(
+                SearchResult(
+                    entity_type=entity_type,
+                    display_value=display_value,
+                    matched_field=row["matched_field"],
+                    location=normalize_ap_identifier(row["location"]),
+                    users=row["users"],
+                    devices=row["devices"],
+                    failure_rate=row["failure_rate"],
+                    related_to=normalize_ap_identifier(row["related_to"]),
+                )
             )
-            for row in rows
-        ]
 
         return GlobalSearchResponse(
             results=results,

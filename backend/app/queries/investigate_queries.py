@@ -411,7 +411,7 @@ LIMIT ${limit_idx} OFFSET ${offset_idx};
 # ENTITY GRAPH DETAILS (EMPLOYEE / MAC / LOCATION / SSID / AP / AP MAC)
 # ============================================================
 
-USER_DEVICES_QUERY_BASE = """
+USER_DEVICES_QUERY_BASE = r"""
 SELECT
     user_mac,
     employee_id,
@@ -431,17 +431,17 @@ SELECT
     CASE
         WHEN location IS NULL OR BTRIM(location) = '' OR UPPER(BTRIM(location)) = 'NA'
         THEN NULL
-        ELSE BTRIM(location)
+        ELSE regexp_replace(BTRIM(location), '\s+', ' ', 'g')
     END AS location,
     CASE
         WHEN ap_mac IS NULL OR BTRIM(ap_mac) = '' OR UPPER(BTRIM(ap_mac)) = 'NA'
         THEN NULL
-        ELSE BTRIM(ap_mac)
+        ELSE regexp_replace(BTRIM(ap_mac), '\s+', ' ', 'g')
     END AS ap_mac,
     CASE
         WHEN ap_hostname IS NULL OR BTRIM(ap_hostname) = '' OR UPPER(BTRIM(ap_hostname)) = 'NA'
         THEN NULL
-        ELSE BTRIM(ap_hostname)
+        ELSE regexp_replace(BTRIM(ap_hostname), '\s+', ' ', 'g')
     END AS ap_hostname,
     observed_ssids
 FROM wifi_user_summary
@@ -460,15 +460,15 @@ WHERE employee_id = $1
 GROUP BY employee_id;
 """
 
-EMPLOYEE_ENTITY_RELATIONS_QUERY = """
+EMPLOYEE_ENTITY_RELATIONS_QUERY = r"""
 SELECT
     COALESCE(
-        ARRAY_AGG(DISTINCT BTRIM(location))
+        ARRAY_AGG(DISTINCT regexp_replace(BTRIM(location), '\s+', ' ', 'g'))
             FILTER (WHERE location IS NOT NULL AND BTRIM(location) <> '' AND UPPER(BTRIM(location)) <> 'NA'),
         ARRAY[]::TEXT[]
     ) AS locations,
     COALESCE(
-        ARRAY_AGG(DISTINCT BTRIM(ap_hostname))
+        ARRAY_AGG(DISTINCT regexp_replace(BTRIM(ap_hostname), '\s+', ' ', 'g'))
             FILTER (WHERE ap_hostname IS NOT NULL AND BTRIM(ap_hostname) <> '' AND UPPER(BTRIM(ap_hostname)) <> 'NA'),
         ARRAY[]::TEXT[]
     ) AS aps
@@ -488,9 +488,9 @@ WHERE ssid IS NOT NULL AND BTRIM(ssid) <> ''
 ORDER BY ssid;
 """
 
-LOCATION_ENTITY_SUMMARY_QUERY = """
+LOCATION_ENTITY_SUMMARY_QUERY = r"""
 SELECT
-    COALESCE(MAX(BTRIM(location)), BTRIM($1)) AS location,
+    MAX(regexp_replace(BTRIM(location), '\s+', ' ', 'g')) AS location,
     COUNT(DISTINCT employee_id)
         FILTER (WHERE employee_id IS NOT NULL) AS users,
     COUNT(DISTINCT user_mac) AS devices,
@@ -510,12 +510,12 @@ FROM wifi_user_summary
 WHERE location IS NOT NULL
   AND BTRIM(location) <> ''
   AND UPPER(BTRIM(location)) <> 'NA'
-  AND LOWER(BTRIM(location)) = LOWER(BTRIM($1));
+  AND LOWER(regexp_replace(BTRIM(location), '\s+', ' ', 'g')) = $1;
 """
 
-LOCATION_TOP_SSIDS_QUERY = """
+LOCATION_TOP_SSIDS_QUERY = r"""
 SELECT
-    BTRIM(ssid) AS ssid,
+    regexp_replace(BTRIM(ssid), '\s+', ' ', 'g') AS ssid,
     COUNT(DISTINCT employee_id)
         FILTER (WHERE employee_id IS NOT NULL) AS users,
     COUNT(DISTINCT user_mac) AS devices
@@ -528,18 +528,18 @@ FROM (
     WHERE location IS NOT NULL
       AND BTRIM(location) <> ''
       AND UPPER(BTRIM(location)) <> 'NA'
-      AND LOWER(BTRIM(location)) = LOWER(BTRIM($1))
+      AND LOWER(regexp_replace(BTRIM(location), '\s+', ' ', 'g')) = $1
       AND observed_ssids IS NOT NULL
 ) t
 WHERE ssid IS NOT NULL AND BTRIM(ssid) <> ''
-GROUP BY BTRIM(ssid)
+GROUP BY regexp_replace(BTRIM(ssid), '\s+', ' ', 'g')
 ORDER BY users DESC, devices DESC
 LIMIT 20;
 """
 
-LOCATION_TOP_APS_QUERY = """
+LOCATION_TOP_APS_QUERY = r"""
 SELECT
-    BTRIM(ap_hostname) AS ap_hostname,
+    regexp_replace(BTRIM(ap_hostname), '\s+', ' ', 'g') AS ap_hostname,
     COUNT(DISTINCT employee_id)
         FILTER (WHERE employee_id IS NOT NULL) AS users,
     COUNT(DISTINCT user_mac) AS devices,
@@ -549,16 +549,16 @@ FROM wifi_user_summary
 WHERE location IS NOT NULL
   AND BTRIM(location) <> ''
   AND UPPER(BTRIM(location)) <> 'NA'
-  AND LOWER(BTRIM(location)) = LOWER(BTRIM($1))
+  AND LOWER(regexp_replace(BTRIM(location), '\s+', ' ', 'g')) = $1
   AND ap_hostname IS NOT NULL
   AND BTRIM(ap_hostname) <> ''
   AND UPPER(BTRIM(ap_hostname)) <> 'NA'
-GROUP BY BTRIM(ap_hostname)
+GROUP BY regexp_replace(BTRIM(ap_hostname), '\s+', ' ', 'g')
 ORDER BY users DESC, devices DESC
 LIMIT 20;
 """
 
-SSID_ENTITY_SUMMARY_QUERY = """
+SSID_ENTITY_SUMMARY_QUERY = r"""
 WITH matched AS (
     SELECT
         employee_id,
@@ -568,11 +568,11 @@ WITH matched AS (
         first_seen_timestamp,
         last_seen_timestamp,
         (
-            SELECT BTRIM(u.s)
+            SELECT regexp_replace(BTRIM(u.s), '\s+', ' ', 'g')
             FROM UNNEST(observed_ssids) AS u(s)
             WHERE u.s IS NOT NULL
               AND BTRIM(u.s) <> ''
-              AND LOWER(BTRIM(u.s)) = LOWER(BTRIM($1))
+              AND LOWER(regexp_replace(BTRIM(u.s), '\s+', ' ', 'g')) = $1
             LIMIT 1
         ) AS matched_ssid
     FROM wifi_user_summary
@@ -582,11 +582,11 @@ WITH matched AS (
           FROM UNNEST(observed_ssids) AS u(s)
           WHERE u.s IS NOT NULL
             AND BTRIM(u.s) <> ''
-            AND LOWER(BTRIM(u.s)) = LOWER(BTRIM($1))
+            AND LOWER(regexp_replace(BTRIM(u.s), '\s+', ' ', 'g')) = $1
       )
 )
 SELECT
-    COALESCE(MAX(matched_ssid), BTRIM($1)) AS ssid,
+    MAX(matched_ssid) AS ssid,
     COUNT(DISTINCT employee_id)
         FILTER (WHERE employee_id IS NOT NULL) AS users,
     COUNT(DISTINCT user_mac) AS devices,
@@ -605,9 +605,9 @@ SELECT
 FROM matched;
 """
 
-SSID_LOCATIONS_QUERY = """
+SSID_LOCATIONS_QUERY = r"""
 SELECT
-    BTRIM(location) AS location,
+    regexp_replace(BTRIM(location), '\s+', ' ', 'g') AS location,
     COUNT(DISTINCT employee_id)
         FILTER (WHERE employee_id IS NOT NULL) AS users,
     COUNT(DISTINCT user_mac) AS devices
@@ -618,19 +618,19 @@ WHERE observed_ssids IS NOT NULL
       FROM UNNEST(observed_ssids) AS u(s)
       WHERE u.s IS NOT NULL
         AND BTRIM(u.s) <> ''
-        AND LOWER(BTRIM(u.s)) = LOWER(BTRIM($1))
+        AND LOWER(regexp_replace(BTRIM(u.s), '\s+', ' ', 'g')) = $1
   )
   AND location IS NOT NULL
   AND BTRIM(location) <> ''
   AND UPPER(BTRIM(location)) <> 'NA'
-GROUP BY BTRIM(location)
+GROUP BY regexp_replace(BTRIM(location), '\s+', ' ', 'g')
 ORDER BY users DESC, devices DESC
 LIMIT 25;
 """
 
-SSID_APS_QUERY = """
+SSID_APS_QUERY = r"""
 SELECT
-    BTRIM(ap_hostname) AS ap_hostname,
+    regexp_replace(BTRIM(ap_hostname), '\s+', ' ', 'g') AS ap_hostname,
     COUNT(DISTINCT employee_id)
         FILTER (WHERE employee_id IS NOT NULL) AS users,
     COUNT(DISTINCT user_mac) AS devices
@@ -641,19 +641,19 @@ WHERE observed_ssids IS NOT NULL
       FROM UNNEST(observed_ssids) AS u(s)
       WHERE u.s IS NOT NULL
         AND BTRIM(u.s) <> ''
-        AND LOWER(BTRIM(u.s)) = LOWER(BTRIM($1))
+        AND LOWER(regexp_replace(BTRIM(u.s), '\s+', ' ', 'g')) = $1
   )
   AND ap_hostname IS NOT NULL
   AND BTRIM(ap_hostname) <> ''
   AND UPPER(BTRIM(ap_hostname)) <> 'NA'
-GROUP BY BTRIM(ap_hostname)
+GROUP BY regexp_replace(BTRIM(ap_hostname), '\s+', ' ', 'g')
 ORDER BY users DESC, devices DESC
 LIMIT 25;
 """
 
-AP_ENTITY_SUMMARY_QUERY = """
+AP_ENTITY_SUMMARY_QUERY = r"""
 SELECT
-    COALESCE(MAX(BTRIM(ap_hostname)), BTRIM($1)) AS ap_hostname,
+    MAX(regexp_replace(BTRIM(ap_hostname), '\s+', ' ', 'g')) AS ap_hostname,
     COUNT(DISTINCT employee_id)
         FILTER (WHERE employee_id IS NOT NULL) AS users,
     COUNT(DISTINCT user_mac) AS devices,
@@ -668,12 +668,12 @@ SELECT
         0
     ) AS failure_rate,
     COALESCE(
-        ARRAY_AGG(DISTINCT BTRIM(ap_mac))
+        ARRAY_AGG(DISTINCT regexp_replace(BTRIM(ap_mac), '\s+', ' ', 'g'))
             FILTER (WHERE ap_mac IS NOT NULL AND BTRIM(ap_mac) <> '' AND UPPER(BTRIM(ap_mac)) <> 'NA'),
         ARRAY[]::TEXT[]
     ) AS ap_macs,
     COALESCE(
-        ARRAY_AGG(DISTINCT BTRIM(location))
+        ARRAY_AGG(DISTINCT regexp_replace(BTRIM(location), '\s+', ' ', 'g'))
             FILTER (WHERE location IS NOT NULL AND BTRIM(location) <> '' AND UPPER(BTRIM(location)) <> 'NA'),
         ARRAY[]::TEXT[]
     ) AS locations,
@@ -683,27 +683,27 @@ FROM wifi_user_summary
 WHERE ap_hostname IS NOT NULL
   AND BTRIM(ap_hostname) <> ''
   AND UPPER(BTRIM(ap_hostname)) <> 'NA'
-  AND LOWER(BTRIM(ap_hostname)) = LOWER(BTRIM($1));
+  AND LOWER(regexp_replace(BTRIM(ap_hostname), '\s+', ' ', 'g')) = $1;
 """
 
-AP_ENTITY_SSIDS_QUERY = """
-SELECT DISTINCT BTRIM(ssid) AS ssid
+AP_ENTITY_SSIDS_QUERY = r"""
+SELECT DISTINCT regexp_replace(BTRIM(ssid), '\s+', ' ', 'g') AS ssid
 FROM (
     SELECT UNNEST(observed_ssids) AS ssid
     FROM wifi_user_summary
     WHERE ap_hostname IS NOT NULL
       AND BTRIM(ap_hostname) <> ''
       AND UPPER(BTRIM(ap_hostname)) <> 'NA'
-      AND LOWER(BTRIM(ap_hostname)) = LOWER(BTRIM($1))
+      AND LOWER(regexp_replace(BTRIM(ap_hostname), '\s+', ' ', 'g')) = $1
       AND observed_ssids IS NOT NULL
 ) t
 WHERE ssid IS NOT NULL AND BTRIM(ssid) <> ''
 ORDER BY ssid;
 """
 
-AP_MAC_ENTITY_SUMMARY_QUERY = """
+AP_MAC_ENTITY_SUMMARY_QUERY = r"""
 SELECT
-    COALESCE(MAX(BTRIM(ap_mac)), BTRIM($1)) AS ap_mac,
+    MAX(regexp_replace(BTRIM(ap_mac), '\s+', ' ', 'g')) AS ap_mac,
     COUNT(DISTINCT employee_id)
         FILTER (WHERE employee_id IS NOT NULL) AS users,
     COUNT(DISTINCT user_mac) AS devices,
@@ -718,12 +718,12 @@ SELECT
         0
     ) AS failure_rate,
     COALESCE(
-        ARRAY_AGG(DISTINCT BTRIM(ap_hostname))
+        ARRAY_AGG(DISTINCT regexp_replace(BTRIM(ap_hostname), '\s+', ' ', 'g'))
             FILTER (WHERE ap_hostname IS NOT NULL AND BTRIM(ap_hostname) <> '' AND UPPER(BTRIM(ap_hostname)) <> 'NA'),
         ARRAY[]::TEXT[]
     ) AS ap_hostnames,
     COALESCE(
-        ARRAY_AGG(DISTINCT BTRIM(location))
+        ARRAY_AGG(DISTINCT regexp_replace(BTRIM(location), '\s+', ' ', 'g'))
             FILTER (WHERE location IS NOT NULL AND BTRIM(location) <> '' AND UPPER(BTRIM(location)) <> 'NA'),
         ARRAY[]::TEXT[]
     ) AS locations,
@@ -733,25 +733,25 @@ FROM wifi_user_summary
 WHERE ap_mac IS NOT NULL
   AND BTRIM(ap_mac) <> ''
   AND UPPER(BTRIM(ap_mac)) <> 'NA'
-  AND LOWER(BTRIM(ap_mac)) = LOWER(BTRIM($1));
+  AND LOWER(regexp_replace(BTRIM(ap_mac), '\s+', ' ', 'g')) = $1;
 """
 
-AP_MAC_ENTITY_SSIDS_QUERY = """
-SELECT DISTINCT BTRIM(ssid) AS ssid
+AP_MAC_ENTITY_SSIDS_QUERY = r"""
+SELECT DISTINCT regexp_replace(BTRIM(ssid), '\s+', ' ', 'g') AS ssid
 FROM (
     SELECT UNNEST(observed_ssids) AS ssid
     FROM wifi_user_summary
     WHERE ap_mac IS NOT NULL
       AND BTRIM(ap_mac) <> ''
       AND UPPER(BTRIM(ap_mac)) <> 'NA'
-      AND LOWER(BTRIM(ap_mac)) = LOWER(BTRIM($1))
+      AND LOWER(regexp_replace(BTRIM(ap_mac), '\s+', ' ', 'g')) = $1
       AND observed_ssids IS NOT NULL
 ) t
 WHERE ssid IS NOT NULL AND BTRIM(ssid) <> ''
 ORDER BY ssid;
 """
 
-RESOLVE_UNIVERSAL_ENTITY_QUERY = """
+RESOLVE_UNIVERSAL_ENTITY_QUERY = r"""
 WITH candidates AS (
     (
         SELECT 'Employee'::TEXT AS entity_type, employee_id::TEXT AS canonical_value, 1 AS priority
@@ -762,50 +762,50 @@ WITH candidates AS (
     )
     UNION ALL
     (
-        SELECT 'Device'::TEXT AS entity_type, BTRIM(user_mac) AS canonical_value, 2 AS priority
+        SELECT 'Device'::TEXT AS entity_type, regexp_replace(BTRIM(user_mac), '\s+', ' ', 'g') AS canonical_value, 2 AS priority
         FROM wifi_user_summary
-        WHERE LOWER(BTRIM(user_mac)) = LOWER(BTRIM($1))
+        WHERE LOWER(regexp_replace(BTRIM(user_mac), '\s+', ' ', 'g')) = $1
         LIMIT 1
     )
     UNION ALL
     (
-        SELECT 'AP MAC'::TEXT AS entity_type, BTRIM(ap_mac) AS canonical_value, 3 AS priority
+        SELECT 'AP MAC'::TEXT AS entity_type, regexp_replace(BTRIM(ap_mac), '\s+', ' ', 'g') AS canonical_value, 3 AS priority
         FROM wifi_user_summary
         WHERE ap_mac IS NOT NULL
           AND BTRIM(ap_mac) <> ''
           AND UPPER(BTRIM(ap_mac)) <> 'NA'
-          AND LOWER(BTRIM(ap_mac)) = LOWER(BTRIM($1))
+          AND LOWER(regexp_replace(BTRIM(ap_mac), '\s+', ' ', 'g')) = $1
         LIMIT 1
     )
     UNION ALL
     (
-        SELECT 'AP'::TEXT AS entity_type, BTRIM(ap_hostname) AS canonical_value, 4 AS priority
+        SELECT 'AP'::TEXT AS entity_type, regexp_replace(BTRIM(ap_hostname), '\s+', ' ', 'g') AS canonical_value, 4 AS priority
         FROM wifi_user_summary
         WHERE ap_hostname IS NOT NULL
           AND BTRIM(ap_hostname) <> ''
           AND UPPER(BTRIM(ap_hostname)) <> 'NA'
-          AND LOWER(BTRIM(ap_hostname)) = LOWER(BTRIM($1))
+          AND LOWER(regexp_replace(BTRIM(ap_hostname), '\s+', ' ', 'g')) = $1
         LIMIT 1
     )
     UNION ALL
     (
-        SELECT 'Location'::TEXT AS entity_type, BTRIM(location) AS canonical_value, 5 AS priority
+        SELECT 'Location'::TEXT AS entity_type, regexp_replace(BTRIM(location), '\s+', ' ', 'g') AS canonical_value, 5 AS priority
         FROM wifi_user_summary
         WHERE location IS NOT NULL
           AND BTRIM(location) <> ''
           AND UPPER(BTRIM(location)) <> 'NA'
-          AND LOWER(BTRIM(location)) = LOWER(BTRIM($1))
+          AND LOWER(regexp_replace(BTRIM(location), '\s+', ' ', 'g')) = $1
         LIMIT 1
     )
     UNION ALL
     (
-        SELECT 'SSID'::TEXT AS entity_type, BTRIM(u.s) AS canonical_value, 6 AS priority
+        SELECT 'SSID'::TEXT AS entity_type, regexp_replace(BTRIM(u.s), '\s+', ' ', 'g') AS canonical_value, 6 AS priority
         FROM wifi_user_summary w
         CROSS JOIN LATERAL UNNEST(w.observed_ssids) AS u(s)
         WHERE w.observed_ssids IS NOT NULL
           AND u.s IS NOT NULL
           AND BTRIM(u.s) <> ''
-          AND LOWER(BTRIM(u.s)) = LOWER(BTRIM($1))
+          AND LOWER(regexp_replace(BTRIM(u.s), '\s+', ' ', 'g')) = $1
         LIMIT 1
     )
 )
@@ -820,31 +820,31 @@ LIMIT 1;
 # ============================================================
 
 FILTER_SSIDS_QUERY = """
-SELECT DISTINCT ssid
+SELECT DISTINCT BTRIM(ssid) AS ssid
 FROM (
     SELECT UNNEST(observed_ssids) AS ssid
     FROM wifi_user_summary
     WHERE observed_ssids IS NOT NULL
 ) t
-WHERE ssid IS NOT NULL AND ssid <> ''
+WHERE ssid IS NOT NULL AND BTRIM(ssid) <> ''
 ORDER BY ssid;
 """
 
-FILTER_LOCATIONS_QUERY = """
-SELECT DISTINCT location
+FILTER_LOCATIONS_QUERY = r"""
+SELECT DISTINCT regexp_replace(BTRIM(location), '\s+', ' ', 'g') AS location
 FROM wifi_user_summary
 WHERE location IS NOT NULL
-  AND location <> ''
-  AND location <> 'NA'
+  AND BTRIM(location) <> ''
+  AND UPPER(BTRIM(location)) <> 'NA'
 ORDER BY location;
 """
 
-FILTER_APS_QUERY = """
-SELECT DISTINCT ap_hostname
+FILTER_APS_QUERY = r"""
+SELECT DISTINCT regexp_replace(BTRIM(ap_hostname), '\s+', ' ', 'g') AS ap_hostname
 FROM wifi_user_summary
 WHERE ap_hostname IS NOT NULL
-  AND ap_hostname <> ''
-  AND ap_hostname <> 'NA'
+  AND BTRIM(ap_hostname) <> ''
+  AND UPPER(BTRIM(ap_hostname)) <> 'NA'
 ORDER BY ap_hostname;
 """
 
@@ -1081,9 +1081,13 @@ combined AS (
     -- Direct AP matches + Cross-entity APs observed at matching Locations
     SELECT
         'AP'::TEXT AS entity_type,
-        BTRIM(ap_hostname) AS display_value,
-        CASE WHEN BTRIM(ap_hostname) ILIKE $1 THEN 'ap_hostname' ELSE 'location_relation' END AS matched_field,
-        MAX(BTRIM(location)) FILTER (
+        regexp_replace(BTRIM(ap_hostname), '\\s+', ' ', 'g') AS display_value,
+        CASE
+            WHEN regexp_replace(BTRIM(ap_hostname), '\\s+', ' ', 'g') ILIKE $1
+            THEN 'ap_hostname'
+            ELSE 'location_relation'
+        END AS matched_field,
+        MAX(regexp_replace(BTRIM(location), '\\s+', ' ', 'g')) FILTER (
             WHERE location IS NOT NULL AND BTRIM(location) <> '' AND UPPER(BTRIM(location)) <> 'NA'
         ) AS location,
         COUNT(DISTINCT employee_id) FILTER (WHERE employee_id IS NOT NULL)::INTEGER AS users,
@@ -1097,28 +1101,31 @@ combined AS (
             0
         )::DOUBLE PRECISION AS failure_rate,
         CASE
-            WHEN BTRIM(ap_hostname) ILIKE $1 THEN NULL
+            WHEN regexp_replace(BTRIM(ap_hostname), '\\s+', ' ', 'g') ILIKE $1 THEN NULL
             ELSE MAX(BTRIM(location)) FILTER (WHERE BTRIM(location) IN (SELECT location FROM location_hits))
         END AS related_to,
-        CASE WHEN BTRIM(ap_hostname) ILIKE $1 THEN 5 ELSE 8 END AS priority
+        CASE
+            WHEN regexp_replace(BTRIM(ap_hostname), '\\s+', ' ', 'g') ILIKE $1 THEN 5
+            ELSE 8
+        END AS priority
     FROM wifi_user_summary
     WHERE ap_hostname IS NOT NULL
       AND BTRIM(ap_hostname) <> ''
       AND UPPER(BTRIM(ap_hostname)) <> 'NA'
       AND (
-          BTRIM(ap_hostname) ILIKE $1
+          regexp_replace(BTRIM(ap_hostname), '\\s+', ' ', 'g') ILIKE $1
           OR BTRIM(location) IN (SELECT location FROM location_hits)
       )
-    GROUP BY BTRIM(ap_hostname)
+    GROUP BY regexp_replace(BTRIM(ap_hostname), '\\s+', ' ', 'g')
 
     UNION ALL
 
     -- Direct AP MAC matches
     SELECT
         'AP MAC'::TEXT AS entity_type,
-        BTRIM(ap_mac) AS display_value,
+        regexp_replace(BTRIM(ap_mac), '\\s+', ' ', 'g') AS display_value,
         'ap_mac'::TEXT AS matched_field,
-        MAX(BTRIM(location)) FILTER (
+        MAX(regexp_replace(BTRIM(location), '\\s+', ' ', 'g')) FILTER (
             WHERE location IS NOT NULL AND BTRIM(location) <> '' AND UPPER(BTRIM(location)) <> 'NA'
         ) AS location,
         COUNT(DISTINCT employee_id) FILTER (WHERE employee_id IS NOT NULL)::INTEGER AS users,
@@ -1137,8 +1144,8 @@ combined AS (
     WHERE ap_mac IS NOT NULL
       AND BTRIM(ap_mac) <> ''
       AND UPPER(BTRIM(ap_mac)) <> 'NA'
-      AND BTRIM(ap_mac) ILIKE $1
-    GROUP BY BTRIM(ap_mac)
+      AND regexp_replace(BTRIM(ap_mac), '\\s+', ' ', 'g') ILIKE $1
+    GROUP BY regexp_replace(BTRIM(ap_mac), '\\s+', ' ', 'g')
 
     UNION ALL
 

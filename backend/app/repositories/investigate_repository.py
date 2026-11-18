@@ -251,19 +251,19 @@ class InvestigateRepository:
                 extra_join = "CROSS JOIN LATERAL UNNEST(s.observed_ssids) AS u(ssid)"
                 builder.raw("u.ssid IS NOT NULL AND u.ssid <> ''")
             elif group_by == "location":
-                group_expr = "s.location"
+                group_expr = r"regexp_replace(BTRIM(s.location), '\s+', ' ', 'g')"
                 builder.raw(
-                    "s.location IS NOT NULL AND s.location <> '' AND s.location <> 'NA'"
+                    "s.location IS NOT NULL AND BTRIM(s.location) <> '' AND UPPER(BTRIM(s.location)) <> 'NA'"
                 )
             elif group_by == "ap":
-                group_expr = "s.ap_hostname"
+                group_expr = r"regexp_replace(BTRIM(s.ap_hostname), '\s+', ' ', 'g')"
                 builder.raw(
-                    "s.ap_hostname IS NOT NULL AND s.ap_hostname <> '' AND s.ap_hostname <> 'NA'"
+                    "s.ap_hostname IS NOT NULL AND BTRIM(s.ap_hostname) <> '' AND UPPER(BTRIM(s.ap_hostname)) <> 'NA'"
                 )
             elif group_by == "ap_mac":
-                group_expr = "s.ap_mac"
+                group_expr = r"regexp_replace(BTRIM(s.ap_mac), '\s+', ' ', 'g')"
                 builder.raw(
-                    "s.ap_mac IS NOT NULL AND s.ap_mac <> '' AND s.ap_mac <> 'NA'"
+                    "s.ap_mac IS NOT NULL AND BTRIM(s.ap_mac) <> '' AND UPPER(BTRIM(s.ap_mac)) <> 'NA'"
                 )
             else:
                 group_expr = "s.user_mac"
@@ -287,19 +287,19 @@ class InvestigateRepository:
         elif group_by == "ssid":
             group_expr = "COALESCE(NULLIF(e.ssid, ''), 'UNKNOWN')"
         elif group_by == "location":
-            group_expr = "s.location"
+            group_expr = r"regexp_replace(BTRIM(s.location), '\s+', ' ', 'g')"
             builder.raw(
-                "s.location IS NOT NULL AND s.location <> '' AND s.location <> 'NA'"
+                "s.location IS NOT NULL AND BTRIM(s.location) <> '' AND UPPER(BTRIM(s.location)) <> 'NA'"
             )
         elif group_by == "ap":
-            group_expr = "s.ap_hostname"
+            group_expr = r"regexp_replace(BTRIM(s.ap_hostname), '\s+', ' ', 'g')"
             builder.raw(
-                "s.ap_hostname IS NOT NULL AND s.ap_hostname <> '' AND s.ap_hostname <> 'NA'"
+                "s.ap_hostname IS NOT NULL AND BTRIM(s.ap_hostname) <> '' AND UPPER(BTRIM(s.ap_hostname)) <> 'NA'"
             )
         elif group_by == "ap_mac":
-            group_expr = "s.ap_mac"
+            group_expr = r"regexp_replace(BTRIM(s.ap_mac), '\s+', ' ', 'g')"
             builder.raw(
-                "s.ap_mac IS NOT NULL AND s.ap_mac <> '' AND s.ap_mac <> 'NA'"
+                "s.ap_mac IS NOT NULL AND BTRIM(s.ap_mac) <> '' AND UPPER(BTRIM(s.ap_mac)) <> 'NA'"
             )
         else:
             group_expr = "e.user_mac"
@@ -375,7 +375,7 @@ class InvestigateRepository:
     async def get_mac_details(self, user_mac: str) -> Optional[Record]:
         query = (
             USER_DEVICES_QUERY_BASE
-            + " WHERE LOWER(BTRIM(user_mac)) = LOWER(BTRIM($1))"
+            + r" WHERE LOWER(regexp_replace(BTRIM(user_mac), '\s+', ' ', 'g')) = $1"
         )
         return await self._db.fetchrow(query, user_mac)
 

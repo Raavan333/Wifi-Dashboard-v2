@@ -1,0 +1,353 @@
+# PHASE 3.1 \- DEFECT REMEDIATION ONLY
+
+## WiFi Observability & Investigation Platform
+
+This is NOT a feature development phase.
+
+This is NOT an architecture redesign phase.
+
+Do NOT introduce new APIs.
+
+Do NOT modify existing response contracts.
+
+Do NOT change frontend\-facing schemas.
+
+Do NOT introduce breaking changes.
+
+The backend has been functionally certified and API contracts are now frozen.
+
+Your task is ONLY to fix the validated defects below while preserving all current endpoint behavior and response shapes.
+
+---
+
+# MANDATORY RULE
+
+Before modifying code:
+
+1. Identify all code paths involved.
+2. Explain exactly where the defect originates.
+3. Fix only the required logic.
+4. Keep existing response schemas identical.
+5. Ensure all existing Swagger endpoints remain unchanged.
+6. Preserve backward compatibility.
+
+No speculative improvements.
+
+No unrelated refactors.
+
+No new abstractions.
+
+Focus only on validated defects.
+
+---
+
+# DEFECT\-001
+
+## Recovery Aggregation Runtime
+
+Current status:
+
+Business logic is correct.
+
+Performance is not.
+
+Recovery currently performs:
+
+FAIL
+
+followed later by
+
+SUCCESS
+
+chronology analysis directly on:
+
+wifi\_event\_history
+
+containing:
+
+7.4M\+ rows
+
+Measured runtime:
+
+39\-45 seconds
+
+This is unacceptable for dashboard usage.
+
+---
+
+## Requirements
+
+Maintain EXACT recovery logic.
+
+Do NOT replace with:
+
+total\_failure\_count > 0
+
+AND total\_success\_count > 0
+
+because that changes semantics.
+
+---
+
+## Required Fix
+
+Move recovery computation into the aggregation layer.
+
+Use:
+
+wifi\_user\_summary
+
+and maintain:
+
+recovered\_after\_failure BOOLEAN
+
+first\_fail\_timestamp TIMESTAMPTZ
+
+last\_success\_after\_fail TIMESTAMPTZ
+
+during incremental updates.
+
+Dashboard must query:
+
+wifi\_user\_summary
+
+instead of recalculating from:
+
+wifi\_event\_history
+
+on every request.
+
+---
+
+## Deliverables
+
+- Migration script
+- Aggregation updater changes
+- Dashboard query changes
+- Backfill strategy
+- Performance estimate
+
+---
+
+# DEFECT\-012
+
+## AP Hostname Normalization
+
+Current issue:
+
+Blank AP hostnames leaked into some earlier drilldowns.
+
+Examples:
+
+\{
+
+  "ap\_hostname": ""
+
+\}
+
+Current platform now mostly filters them, but normalization must become universal.
+
+---
+
+## Required Behavior
+
+Treat all as invalid AP identifiers:
+
+NULL
+
+''
+
+'NA'
+
+'na'
+
+' Na '
+
+after normalization.
+
+---
+
+## Required Fix
+
+Implement centralized AP normalization utility used everywhere.
+
+Apply to:
+
+Dashboard AP Analytics
+
+Location Entity
+
+SSID Entity
+
+AP Entity
+
+AP MAC Entity
+
+Search
+
+Grouping Engine
+
+No endpoint should emit blank AP identifiers.
+
+---
+
+# DEFECT\-018
+
+## Entity Resolver Normalization
+
+Current behavior:
+
+Works:
+
+Unknown
+
+unknown
+
+Fails:
+
+%20Unknown%20
+
+because normalization is incomplete.
+
+---
+
+## Required Fix
+
+Create a universal entity normalization pipeline.
+
+Process:
+
+urllib.parse.unquote()
+
+strip()
+
+collapse\_internal\_whitespace()
+
+normalize\_case()
+
+before lookup.
+
+---
+
+## Required Behavior
+
+All entity resolution endpoints must resolve:
+
+Unknown
+
+unknown
+
+UNKNOWN
+
+ Unknown
+
+%20Unknown%20
+
+to:
+
+Unknown
+
+Same rule for:
+
+location
+
+ssid
+
+ap\_hostname
+
+ap\_mac
+
+---
+
+# VALIDATION REQUIREMENTS
+
+After implementing fixes:
+
+Verify:
+
+GET /investigate/entity/Unknown
+
+GET /investigate/entity/unknown
+
+GET /investigate/entity/%20Unknown%20
+
+all resolve identically.
+
+---
+
+Verify:
+
+No endpoint returns:
+
+\{
+
+  "ap\_hostname":""
+
+\}
+
+or
+
+\{
+
+  "ap\_hostname":"NA"
+
+\}
+
+where valid AP filtering is expected.
+
+---
+
+Verify:
+
+Recovery dashboard loads without requiring live aggregation across 7.4M records.
+
+---
+
+# DO NOT CHANGE
+
+Do NOT touch:
+
+InvestigationRequest schema
+
+Generic Investigation Engine
+
+Grouping Engine
+
+Search API
+
+Entity Graph
+
+AP MAC Endpoint
+
+Universal Resolver API contract
+
+Timeline API contracts
+
+Events API contracts
+
+Dashboard response schemas
+
+unless a modification is absolutely required to fix the three validated defects.
+
+---
+
+# SUCCESS CRITERIA
+
+Backend behavior after remediation:
+
+✅ Exact recovery semantics preserved
+
+✅ Recovery no longer executes 39\-45 second scans
+
+✅ AP normalization centralized
+
+✅ Entity resolver fully normalized
+
+✅ No API contract changes
+
+✅ No frontend changes required
+
+✅ All existing Swagger endpoints remain operational
+
+Only produce code that addresses these three defects.
+

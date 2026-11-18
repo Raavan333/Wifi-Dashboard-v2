@@ -279,29 +279,29 @@ LIMIT $1;
 # LOCATION OVERVIEW
 # ============================================================
 
-LOCATION_USERS_DISTRIBUTION_QUERY = """
+LOCATION_USERS_DISTRIBUTION_QUERY = r"""
 SELECT
-    BTRIM(location) AS location,
+    regexp_replace(BTRIM(location), '\s+', ' ', 'g') AS location,
     COUNT(DISTINCT employee_id) AS user_count
 FROM wifi_user_summary
 WHERE location IS NOT NULL
   AND BTRIM(location) <> ''
   AND UPPER(BTRIM(location)) <> 'NA'
   AND employee_id IS NOT NULL
-GROUP BY BTRIM(location)
+GROUP BY regexp_replace(BTRIM(location), '\s+', ' ', 'g')
 ORDER BY user_count DESC
 LIMIT $1;
 """
 
-LOCATION_DEVICES_DISTRIBUTION_QUERY = """
+LOCATION_DEVICES_DISTRIBUTION_QUERY = r"""
 SELECT
-    BTRIM(location) AS location,
+    regexp_replace(BTRIM(location), '\s+', ' ', 'g') AS location,
     COUNT(DISTINCT user_mac) AS device_count
 FROM wifi_user_summary
 WHERE location IS NOT NULL
   AND BTRIM(location) <> ''
   AND UPPER(BTRIM(location)) <> 'NA'
-GROUP BY BTRIM(location)
+GROUP BY regexp_replace(BTRIM(location), '\s+', ' ', 'g')
 ORDER BY device_count DESC
 LIMIT $1;
 """
@@ -447,9 +447,9 @@ FROM wifi_user_summary;
 # AP ANALYTICS
 # ============================================================
 
-TOP_APS_QUERY = """
+TOP_APS_QUERY = r"""
 SELECT
-    BTRIM(ap_hostname) AS ap_hostname,
+    regexp_replace(BTRIM(ap_hostname), '\s+', ' ', 'g') AS ap_hostname,
     COUNT(DISTINCT employee_id)
         FILTER (WHERE employee_id IS NOT NULL) AS users,
     COUNT(DISTINCT user_mac) AS devices,
@@ -467,14 +467,14 @@ FROM wifi_user_summary
 WHERE ap_hostname IS NOT NULL
   AND BTRIM(ap_hostname) <> ''
   AND UPPER(BTRIM(ap_hostname)) <> 'NA'
-GROUP BY BTRIM(ap_hostname)
+GROUP BY regexp_replace(BTRIM(ap_hostname), '\s+', ' ', 'g')
 ORDER BY users DESC, devices DESC
 LIMIT $1;
 """
 
-WORST_APS_QUERY = """
+WORST_APS_QUERY = r"""
 SELECT
-    BTRIM(ap_hostname) AS ap_hostname,
+    regexp_replace(BTRIM(ap_hostname), '\s+', ' ', 'g') AS ap_hostname,
     COUNT(DISTINCT employee_id)
         FILTER (WHERE employee_id IS NOT NULL) AS users,
     COUNT(DISTINCT user_mac) AS devices,
@@ -492,7 +492,7 @@ FROM wifi_user_summary
 WHERE ap_hostname IS NOT NULL
   AND BTRIM(ap_hostname) <> ''
   AND UPPER(BTRIM(ap_hostname)) <> 'NA'
-GROUP BY BTRIM(ap_hostname)
+GROUP BY regexp_replace(BTRIM(ap_hostname), '\s+', ' ', 'g')
 HAVING COALESCE(SUM(total_success_count + total_failure_count), 0) >= $1
 ORDER BY failure_rate DESC, failure_count DESC
 LIMIT $2;

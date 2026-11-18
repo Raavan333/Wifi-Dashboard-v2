@@ -1,4 +1,5 @@
 import asyncio
+from typing import Optional
 
 from app.cache.cache_keys import (
     DASHBOARD_ACTIVITY,
@@ -46,6 +47,7 @@ from app.schemas.dashboard import (
     UserActivityResponse,
     UserPopulationResponse,
 )
+from app.utils.normalization import normalize_ap_identifier
 from app.utils.pagination import build_pagination_meta
 
 
@@ -579,9 +581,12 @@ class DashboardService:
                 else 0.0
             )
 
-            def to_item(row) -> APMetricItem:
+            def to_item(row) -> Optional[APMetricItem]:
+                ap_hostname = normalize_ap_identifier(row["ap_hostname"])
+                if ap_hostname is None:
+                    return None
                 return APMetricItem(
-                    ap_hostname=row["ap_hostname"],
+                    ap_hostname=ap_hostname,
                     users=int(row["users"] or 0),
                     devices=int(row["devices"] or 0),
                     success_count=int(row["success_count"] or 0),
@@ -589,9 +594,12 @@ class DashboardService:
                     failure_rate=float(row["failure_rate"] or 0.0),
                 )
 
+            top_aps = [item for r in top_rows if (item := to_item(r)) is not None]
+            worst_aps = [item for r in worst_rows if (item := to_item(r)) is not None]
+
             return APAnalyticsResponse(
-                top_aps=[to_item(r) for r in top_rows],
-                worst_aps=[to_item(r) for r in worst_rows],
+                top_aps=top_aps,
+                worst_aps=worst_aps,
                 ap_coverage=APCoverageStats(
                     ap_coverage=ap_cov,
                     mapped_devices=ap_mapped,

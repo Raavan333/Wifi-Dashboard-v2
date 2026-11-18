@@ -103,18 +103,117 @@ CREATE INDEX IF NOT EXISTS idx_wus_device_ip
     ON wifi_user_summary (device_ip)
     WHERE device_ip IS NOT NULL;
 
--- 6. Case-insensitive, trimmed functional indexes for fast entity resolution
+-- 6. Exact incremental recovery updater (call after each summary ingestion batch)
+--    Normal forward-time updates touch ONLY events since p_since; out-of-order
+--    historical backfills automatically recompute only the affected MACs.
+CREATE OR REPLACE FUNCTION refresh_wifi_user_recovery_incremental(p_since TIMESTAMPTZ DEFAULT NULL)
+RETURNS BIGINT
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    v_updated BIGINT := 0;
+BEGIN
+    WITH impacted_macs AS (
+        SELECT DISTINCT user_mac
+        FROM wifi_event_history
+        WHERE status IN ('FAIL', 'SUCCESS')
+          AND (p_since IS NULL OR appeared_timestamp >= p_since OR created_at >= p_since)
+    ),
+    delta_bounds AS (
+        SELECT
+            e.user_mac,
+            MIN(e.appeared_timestamp) FILTER (WHERE e.status = 'FAIL') AS batch_min_fail,
+            MAX(e.appeared_timestamp) FILTER (WHERE e.status = 'SUCCESS') AS batch_max_success
+        FROM wifi_event_history e
+        JOIN impacted_macs m ON e.user_mac = m.user_mac
+        WHERE e.status IN ('FAIL', 'SUCCESS')
+          AND (p_since IS NULL OR e.appeared_timestamp >= p_since OR e.created_at >= p_since)
+        GROUP BY e.user_mac
+    ),
+    resolved AS (
+        SELECT
+            d.user_mac,
+            CASE
+                WHEN s.first_fail_timestamp IS NULL THEN d.batch_min_fail
+                WHEN d.batch_min_fail IS NULL THEN s.first_fail_timestamp
+                ELSE LEAST(s.first_fail_timestamp, d.batch_min_fail)
+            END AS next_first_fail,
+            s.first_fail_timestamp AS prev_first_fail,
+            s.last_success_after_fail AS prev_last_success,
+            d.batch_min_fail,
+            d.batch_max_success
+        FROM delta_bounds d
+        JOIN wifi_user_summary s ON s.user_mac = d.user_mac
+    ),
+    late_backfill_recompute AS (
+        SELECT
+            e.user_mac,
+            MIN(e.appeared_timestamp) FILTER (WHERE e.status = 'FAIL') AS exact_first_fail,
+            MAX(e.appeared_timestamp) FILTER (WHERE e.status = 'SUCCESS') AS exact_max_success
+        FROM wifi_event_history e
+        JOIN resolved r ON e.user_mac = r.user_mac
+        WHERE (
+            r.batch_min_fail IS NOT NULL
+            AND (
+                r.prev_first_fail IS NULL
+                OR r.batch_min_fail < r.prev_first_fail
+            )
+        )
+          AND e.status IN ('FAIL', 'SUCCESS')
+        GROUP BY e.user_mac
+    )
+    UPDATE wifi_user_summary s
+    SET
+        first_fail_timestamp = COALESCE(lb.exact_first_fail, r.next_first_fail),
+        last_success_after_fail = CASE
+            WHEN lb.user_mac IS NOT NULL THEN
+                CASE
+                    WHEN lb.exact_first_fail IS NOT NULL
+                     AND lb.exact_max_success IS NOT NULL
+                     AND lb.exact_max_success > lb.exact_first_fail
+                    THEN lb.exact_max_success
+                    ELSE NULL
+                END
+            WHEN r.next_first_fail IS NOT NULL
+             AND GREATEST(r.prev_last_success, r.batch_max_success) IS NOT NULL
+             AND GREATEST(r.prev_last_success, r.batch_max_success) > r.next_first_fail
+            THEN GREATEST(r.prev_last_success, r.batch_max_success)
+            ELSE r.prev_last_success
+        END,
+        recovered_after_failure = (
+            COALESCE(lb.exact_first_fail, r.next_first_fail) IS NOT NULL
+            AND (
+                CASE
+                    WHEN lb.user_mac IS NOT NULL THEN
+                        lb.exact_max_success IS NOT NULL
+                        AND lb.exact_max_success > lb.exact_first_fail
+                    ELSE
+                        GREATEST(r.prev_last_success, r.batch_max_success) IS NOT NULL
+                        AND GREATEST(r.prev_last_success, r.batch_max_success) > r.next_first_fail
+                END
+            )
+        )
+    FROM resolved r
+    LEFT JOIN late_backfill_recompute lb ON lb.user_mac = r.user_mac
+    WHERE s.user_mac = r.user_mac;
+
+    GET DIAGNOSTICS v_updated = ROW_COUNT;
+    RETURN v_updated;
+END;
+$$;
+
+-- 7. Case-insensitive, whitespace-normalized functional indexes for fast entity resolution
 CREATE INDEX IF NOT EXISTS idx_wus_user_mac_norm
-    ON wifi_user_summary (LOWER(BTRIM(user_mac)));
+    ON wifi_user_summary (LOWER(regexp_replace(BTRIM(user_mac), '\s+', ' ', 'g')));
 
 CREATE INDEX IF NOT EXISTS idx_wus_location_norm
-    ON wifi_user_summary (LOWER(BTRIM(location)))
+    ON wifi_user_summary (LOWER(regexp_replace(BTRIM(location), '\s+', ' ', 'g')))
     WHERE location IS NOT NULL AND BTRIM(location) <> '' AND UPPER(BTRIM(location)) <> 'NA';
 
 CREATE INDEX IF NOT EXISTS idx_wus_ap_hostname_norm
-    ON wifi_user_summary (LOWER(BTRIM(ap_hostname)))
+    ON wifi_user_summary (LOWER(regexp_replace(BTRIM(ap_hostname), '\s+', ' ', 'g')))
     WHERE ap_hostname IS NOT NULL AND BTRIM(ap_hostname) <> '' AND UPPER(BTRIM(ap_hostname)) <> 'NA';
 
 CREATE INDEX IF NOT EXISTS idx_wus_ap_mac_norm
-    ON wifi_user_summary (LOWER(BTRIM(ap_mac)))
+    ON wifi_user_summary (LOWER(regexp_replace(BTRIM(ap_mac), '\s+', ' ', 'g')))
     WHERE ap_mac IS NOT NULL AND BTRIM(ap_mac) <> '' AND UPPER(BTRIM(ap_mac)) <> 'NA';
